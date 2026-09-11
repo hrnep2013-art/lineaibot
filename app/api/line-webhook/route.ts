@@ -56,6 +56,15 @@ async function handleEvent(event: webhook.Event) {
       replyText = DEFAULT_REPLY;
     } else {
       replyText = result.text.trim();
+      if (result.groundingSources.length > 0) {
+        // ต่อท้ายด้วยแหล่งอ้างอิงจากเอกสารที่อัปโหลดเข้า File Search (ถ้ามีการค้นจริงในรอบนี้)
+        // จำกัดไม่เกิน 3 แหล่ง กันข้อความยาวเกินไป
+        const cites = result.groundingSources
+          .slice(0, 3)
+          .map((s) => (s.pageNumber ? `${s.title} (หน้า ${s.pageNumber})` : s.title))
+          .join(", ");
+        replyText += `\n\n(อ้างอิงจากเอกสาร: ${cites})`;
+      }
     }
   } catch (err) {
     console.error("[line-webhook] processing error:", err);
