@@ -18,13 +18,15 @@ export async function askGemini(
     contents: [{ role: "user", parts: [{ text: userQuestion }] }],
     config: {
       systemInstruction,
-      temperature: 1.0, // ตามคำแนะนำ Google สำหรับ Gemini 3.x — ห้ามปรับ
-      maxOutputTokens: 1024,
+      // หมายเหตุ: ถอด temperature ออกแล้ว เพราะ Gemini 3.x ตระกูลนี้ (รวม 3.5 Flash)
+      // เพิกเฉยค่า temperature/top_p/top_k โดยสมบูรณ์ตามประกาศ migration ล่าสุดของ Google
+      // ตัวคุมความสม่ำเสมอ/คุณภาพคำตอบจริงคือ thinkingLevel แทน
+      maxOutputTokens: 2048,
       thinkingConfig: {
-        // บังคับ thinking ต่ำ กัน thinking แย่งโควตาจนตอบไม่ครบ
-        // (Gemini 3.x นับ thinking + output รวมกันจริง และ default ของ 3.5 Flash คือ "medium"
-        // ซึ่งกินโควตาเยอะกว่าที่จำเป็นสำหรับงานตอบ FAQ สั้นๆ แบบนี้)
-        thinkingLevel: ThinkingLevel.LOW,
+        // ยกจาก LOW เป็น MEDIUM (ค่า default ใหม่ของ Google เอง) เพราะงานตอบคำถามเชิงคำนวณ
+        // (เช่น นับวันจากวันบรรจุ) ต้องคิดหลายขั้นตอน LOW ทำให้บางครั้งคิดไม่ครบแล้ว
+        // เลือกทางลัดตอบ fallback แทน ทำให้คำถามเดิมได้คำตอบไม่เหมือนกันในแต่ละครั้ง
+        thinkingLevel: ThinkingLevel.MEDIUM,
       },
     },
   });

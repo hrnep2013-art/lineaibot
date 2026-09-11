@@ -10,11 +10,14 @@ const client = new messagingApi.MessagingApiClient({
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN!,
 });
 
-// สำคัญ: ต้องอยู่บน Vercel plan ที่รองรับ duration พอ (Hobby = 10s เต็มเพดาน)
-// ปรับ TIMEOUT_MS ด้านล่างให้เหลือ buffer เผื่อ verify signature + reply call
+// maxDuration ของ Vercel function นี้ยืนยันแล้วจาก log จริงว่าใช้ได้ถึง 30s บน plan ปัจจุบัน
+// (ดู Runtime Logs → Function Invocation → Execution Duration/Maximum)
 export const maxDuration = 30;
 
-const GEMINI_TIMEOUT_MS = 8000;
+// เดิม 8000ms ตอนใช้ thinkingLevel LOW แต่พอยกเป็น MEDIUM เพื่อความสม่ำเสมอของคำตอบ
+// (ดูคอมเมนต์ใน lib/gemini.ts) เวลาคิดนานขึ้น เลยขยับ timeout ให้มี buffer พอ
+// เหลือ ~10s ให้ signature validate + JSON parse + เรียก LINE reply API
+const GEMINI_TIMEOUT_MS = 20000;
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
