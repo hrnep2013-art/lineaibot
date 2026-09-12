@@ -40,6 +40,9 @@ lib/
   sheet.ts                     ← ดึง+parse FAQ จาก Google Sheet CSV
   regulations.ts                ← ความรู้ระเบียบที่สรุปไว้เป็น text คงที่ (7 ฉบับ ณ ตอนนี้)
   constants.ts                  ← ข้อความ fallback (DEFAULT_REPLY)
+  log.ts                        ← ส่ง log คำถาม-คำตอบไปยัง Google Sheet (ถ้าตั้งค่าไว้)
+docs/
+  apps-script-logger.gs        ← โค้ดอ้างอิงสำหรับวางใน Google Apps Script (ฝั่งรับ log)
 ```
 
 ---
@@ -62,6 +65,7 @@ Endpoint เดียว: `POST /api/line-webhook` — ลำดับการ�
      d. ถ้า `finishReason === "MAX_TOKENS"` หรือข้อความว่าง → ใช้ `DEFAULT_REPLY` แทน ไม่งั้นใช้คำตอบจริง + ต่อท้ายด้วย `(อ้างอิงจากเอกสาร: ...)` ถ้ามี citation
    - **catch block:** error อะไรก็ตามในขั้นตอนบน (sheet fetch พัง, Gemini error, timeout ฯลฯ) → log แล้วใช้ `DEFAULT_REPLY`
    - **try/catch ที่สอง:** เรียก `client.replyMessage({replyToken, messages: [...]})` ส่งข้อความจริงกลับ LINE — ถ้าขั้นนี้ fail (เช่น token หมดอายุ) จะแค่ log error เงียบๆ **ผู้ใช้จะไม่ได้รับคำตอบเลยโดยไม่มีการแจ้งเตือนใดๆ** (ดู Known Constraints ข้อ 6 ที่เกี่ยวข้อง)
+   - **หลังตอบ LINE เสร็จ:** เรียก `logConversation()` (`lib/log.ts`) ส่ง `{question, answer, wasFallback, hadCitation}` ไปยัง `LOG_SHEET_WEBHOOK_URL` (ถ้าตั้งค่าไว้) เพื่อบันทึกลง Google Sheet — ถ้า log ล้มเหลวจะแค่ log error ไม่กระทบผู้ใช้ เพราะเรียกหลังส่งคำตอบไปแล้ว
 5. **ตอบ LINE** ด้วย `{status: "ok"}` (LINE ไม่สนใจ body นี้ ขอแค่ status 200)
 
 ---
@@ -94,8 +98,10 @@ Parse เป็น `FaqItem { id, category, question, keywords, answer, isActive
 ### 3.3 File Search store (RAG) — Google-managed
 Vector store ฝั่ง Google (`fileSearchStores/xxxxx`) เก็บชื่อไว้ใน env var `GEMINI_FILE_SEARCH_STORE` อัปโหลด PDF ผ่าน `/admin/upload` → Google จัดการ chunking/embedding/indexing เองทั้งหมด แอปนี้**ไม่เก็บสำเนาไฟล์ PDF ไว้เอง** อ้างอิงแค่ชื่อ store ตอนเรียก `generateContent` เท่านั้น
 
-### 3.4 อื่นๆ
-- ไม่มีการเก็บ log บทสนทนา/ประวัติคำถามที่ไหนเลย (stateless ทุกข้อความ) — ถ้าอยากรู้ว่าบอทตอบอะไรไปบ้าง ต้องดูจาก Vercel Runtime Logs เท่านั้น
+### 3.4 Log — Google Sheet (ผ่าน Apps Script)
+`lib/log.ts` ส่ง `{question, answer, wasFallback, hadCitation}` เป็น POST JSON ไปยัง `LOG_SHEET_WEBHOOK_URL` (Apps Script Web App, โค้ดอ้างอิงอยู่ที่ `docs/apps-script-logger.gs`) ทุกครั้งหลังตอบ LINE เสร็จ Apps Script จะ append แถวใหม่ลงชีตชื่อ "Logs" (สร้างอัตโนมัติถ้ายังไม่มี) คอลัมน์: `timestamp, question, answer, was_fallback, had_citation` ป้องกันด้วยรหัสลับ (`LOG_SHEET_SECRET` ต้องตรงกับ `SECRET` ที่ hardcode ไว้ในตัว Apps Script เอง) — ถ้าไม่ได้ตั้ง `LOG_SHEET_WEBHOOK_URL` ระบบจะข้ามการบันทึกเงียบๆ ไม่กระทบการทำงานหลัก
+
+### 3.5 อื่นๆ
 - cache ใน `lib/sheet.ts` อยู่ระดับ module-level ในหน่วยความจำ ไม่ persist ข้าม instance/cold start
 
 ---
@@ -114,6 +120,8 @@ Vector store ฝั่ง Google (`fileSearchStores/xxxxx`) เก็บชื�
 | `SHEET_CSV_URL` | ลิงก์ CSV ของ Google Sheet ที่เก็บ FAQ | จำเป็น |
 | `ADMIN_UPLOAD_SECRET` | รหัสผ่านป้องกันหน้า `/admin/upload` และ API เบื้องหลัง | จำเป็นถ้าจะใช้ File Search |
 | `GEMINI_FILE_SEARCH_STORE` | ชื่อ File Search store (`fileSearchStores/xxxxx`) — ได้มาจากการกด "สร้าง Store" ครั้งแรก | ไม่บังคับ — ถ้าไม่ตั้ง บอททำงานแบบเดิมได้ปกติ (ไม่มี File Search) |
+| `LOG_SHEET_WEBHOOK_URL` | Apps Script Web App URL สำหรับบันทึก log คำถาม-คำตอบลง Google Sheet | ไม่บังคับ — ถ้าไม่ตั้ง จะไม่มีการบันทึก log |
+| `LOG_SHEET_SECRET` | รหัสลับที่ต้องตรงกับตัวแปร `SECRET` ใน Apps Script (`docs/apps-script-logger.gs`) | จำเป็นถ้าจะใช้ logging |
 
 ---
 
@@ -122,7 +130,7 @@ Vector store ฝั่ง Google (`fileSearchStores/xxxxx`) เก็บชื�
 1. **FAQ ไม่มีการกรองตามความเกี่ยวข้อง** — ทุกแถวที่ active ถูกยัดเข้าพรอมต์ทุกครั้งไม่ว่าคำถามจะเรื่องอะไร คอลัมน์ `keywords`/`category` มีอยู่แต่ไม่ได้ใช้งาน ถ้า Sheet โตมากจะกินโทเค็น/ค่าใช้จ่าย/latency มากขึ้นเรื่อยๆ
 2. **`regulations.ts` เป็น text คงที่ที่ต้องแก้โค้ด + push ทุกครั้ง** ต่างจาก FAQ Sheet และ File Search ที่แก้ได้โดยไม่ต้อง deploy ใหม่ มีความเสี่ยงเรื่องการสรุป/ตีความผิดจากต้นฉบับ (เคยเจอจริง: OCR อ่านวันที่ผิดจาก "๑๐" เป็น "๙๐" ในรอบก่อน แก้ไขแล้ว)
 3. **Cache ของ FAQ (60 วิ) อยู่แค่ระดับ instance เดียว** ไม่ใช่ cache กลางที่แชร์กันทุก serverless instance
-4. **ไม่มี log การสนทนาเก็บไว้เลย** ตอนนี้วิธีเดียวที่รู้ว่าบอทตอบผิดคือมีคนแคปหน้าจอมาให้ดู
+4. **Logging เป็นแบบ opt-in ผ่าน Google Sheet เท่านั้น** (ดูหัวข้อ 3.4) ไม่ใช่ระบบ analytics ที่มี dashboard สรุปให้ ต้องเปิดสเปรดชีตเองเพื่อดู ไม่มีการแจ้งเตือนอัตโนมัติเมื่อคำถามตกไปเป็น fallback บ่อยผิดปกติ, การเขียนแบบ `sheet.appendRow()` ผ่าน Apps Script ก็ไม่ได้ออกแบบมารองรับ traffic สูงมาก (ดูตัวเลือกอื่นในหัวข้อ Roadmap ถ้าจำเป็นต้องขยาย)
 5. **คำตอบเชิงคำนวณ (อายุงาน/สิทธิลาตามวันบรรจุ) ยังเป็นการอนุมานของ LLM** แม้จะบังคับให้อิงตัวเลขจากระเบียบจริงเท่านั้นและต้องแนบคำแนะนำให้เช็ค HR ทุกครั้ง แต่ก็ไม่ใช่การการันตีความถูกต้อง 100% ควรสุ่มตรวจคำตอบกลุ่มนี้เป็นระยะ
 6. **ระบบยืนยันตัวตนของ `/admin/*` เป็นรหัสผ่านเดียวแบบธรรมดา** ไม่ timing-safe comparison, ไม่มี rate limit, ไม่มี audit log ว่าใครอัปโหลดอะไรเมื่อไหร่ เหมาะกับทีมเล็กที่ไว้ใจกันเท่านั้น ห้ามแชร์ลิงก์ `/admin/upload` ออกนอกหน่วยงาน
 7. **File Search ยังไม่มีระบบจัดการเอกสารซ้ำ/เวอร์ชัน** — อัปโหลด PDF ฉบับแก้ไขใหม่ จะเป็นการ "เพิ่ม" เอกสารใหม่เข้า store ไม่ใช่แทนที่ของเดิม เอกสารเก่ากับใหม่จะถูกค้นเจอพร้อมกันทั้งคู่ ยังไม่มี UI ให้ลบ/ดูรายการเอกสารที่อัปโหลดไปแล้ว
@@ -140,5 +148,5 @@ Vector store ฝั่ง Google (`fileSearchStores/xxxxx`) เก็บชื�
 2. **Migrate `regulations.ts` เข้า File Search ทั้งหมด** — ตอนนี้จงใจเก็บคู่ขนานกันไป (ของเดิมไม่แตะ + File Search เป็นชั้นเสริม) ในอนาคตอาจอัปโหลด PDF ต้นฉบับทั้ง 7 ฉบับเข้า File Search โดยตรง จะได้ citation หน้าอัตโนมัติ และเลิกต้องแก้โค้ด/push ทุกครั้งที่มีระเบียบใหม่
 3. **หน้าจัดการเอกสารใน File Search store** — list/delete/replace เอกสารที่อัปโหลดไปแล้ว (แก้ Known Constraint ข้อ 7)
 4. **ใช้คอลัมน์ `keywords`/`category` ของ FAQ ให้เกิดประโยชน์** — กรองเฉพาะแถวที่เกี่ยวข้องก่อนยัดเข้าพรอมต์ แทนที่จะส่งทั้งหมดทุกครั้ง (สำคัญขึ้นเรื่อยๆ ถ้า Sheet โตขึ้น)
-5. **เก็บ log คำถาม-คำตอบ** โดยเฉพาะข้อความที่ตกไปเป็น `DEFAULT_REPLY` เพื่อรู้ว่าควรเพิ่มความรู้เรื่องอะไรต่อ แทนที่จะรอคนแคปหน้าจอมาแจ้ง
+5. ~~เก็บ log คำถาม-คำตอบ~~ — **ทำแล้ว** (ก.ย. 2569) ผ่าน Google Sheet + Apps Script ดูหัวข้อ 3.4 ไอเดียต่อยอด: ทำรายงานสรุปอัตโนมัติ (เช่น แจ้งเตือนถ้า `was_fallback` เกินกี่ % ต่อสัปดาห์) หรือย้ายไป Vercel Marketplace database (Neon/Upstash) ถ้า traffic สูงขึ้นจนการเขียน Sheet ตามไม่ทัน
 6. **ระบบยืนยันตัวตนที่แข็งแรงขึ้นสำหรับ `/admin/upload`** ถ้ามีคนใช้งานมากกว่านี้ (login รายคน + audit log)

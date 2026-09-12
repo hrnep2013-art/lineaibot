@@ -4,6 +4,7 @@ import { getFaqList } from "@/lib/sheet";
 import { buildSystemInstruction } from "@/lib/prompt";
 import { askGemini } from "@/lib/gemini";
 import { DEFAULT_REPLY } from "@/lib/constants";
+import { logConversation } from "@/lib/log";
 
 const channelSecret = process.env.LINE_CHANNEL_SECRET!;
 const client = new messagingApi.MessagingApiClient({
@@ -42,6 +43,7 @@ async function handleEvent(event: webhook.Event) {
 
   const question = event.message.text;
   let replyText = DEFAULT_REPLY;
+  let hadCitation = false;
 
   try {
     const faqList = await getFaqList();
@@ -59,6 +61,7 @@ async function handleEvent(event: webhook.Event) {
       if (result.groundingSources.length > 0) {
         // ต่อท้ายด้วยแหล่งอ้างอิงจากเอกสารที่อัปโหลดเข้า File Search (ถ้ามีการค้นจริงในรอบนี้)
         // จำกัดไม่เกิน 3 แหล่ง กันข้อความยาวเกินไป
+        hadCitation = true;
         const cites = result.groundingSources
           .slice(0, 3)
           .map((s) => (s.pageNumber ? `${s.title} (หน้า ${s.pageNumber})` : s.title))
@@ -80,6 +83,14 @@ async function handleEvent(event: webhook.Event) {
   } catch (err) {
     console.error("[line-webhook] LINE reply failed:", err);
   }
+
+  // log หลังตอบ LINE เสร็จแล้ว ไม่ทำให้การตอบบุคลากรช้าลงเพราะรอ log ก่อน
+  await logConversation({
+    question,
+    answer: replyText,
+    wasFallback: replyText === DEFAULT_REPLY,
+    hadCitation,
+  });
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
