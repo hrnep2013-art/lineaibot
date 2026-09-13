@@ -5,6 +5,7 @@ import { buildSystemInstruction } from "@/lib/prompt";
 import { askGemini } from "@/lib/gemini";
 import { DEFAULT_REPLY } from "@/lib/constants";
 import { logConversation } from "@/lib/log";
+import { quickReplyItems, WELCOME_MESSAGE } from "@/lib/quick-replies";
 
 const channelSecret = process.env.LINE_CHANNEL_SECRET!;
 const client = new messagingApi.MessagingApiClient({
@@ -35,6 +36,25 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleEvent(event: webhook.Event) {
+  // ตอนมีคนเพิ่มบอทเป็นเพื่อน (หรือปลดบล็อก) — ส่งข้อความต้อนรับพร้อมปุ่มลัดทันที
+  if (event.type === "follow") {
+    try {
+      await client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [
+          {
+            type: "text",
+            text: WELCOME_MESSAGE,
+            quickReply: { items: quickReplyItems },
+          },
+        ],
+      });
+    } catch (err) {
+      console.error("[line-webhook] follow reply failed:", err);
+    }
+    return;
+  }
+
   if (event.type !== "message" || event.message.type !== "text") return;
 
   // replyToken เป็น optional ใน @line/bot-sdk เวอร์ชันปัจจุบัน (v11) — ต่างจากบรีฟเดิมที่สมมติว่าเป็น string เสมอ
@@ -78,7 +98,13 @@ async function handleEvent(event: webhook.Event) {
     // v11: replyMessage รับ object เดียว { replyToken, messages } แทนรูปแบบเดิม (replyToken, message)
     await client.replyMessage({
       replyToken,
-      messages: [{ type: "text", text: replyText }],
+      messages: [
+        {
+          type: "text",
+          text: replyText,
+          quickReply: { items: quickReplyItems },
+        },
+      ],
     });
   } catch (err) {
     console.error("[line-webhook] LINE reply failed:", err);

@@ -41,6 +41,7 @@ lib/
   regulations.ts                ← ความรู้ระเบียบที่สรุปไว้เป็น text คงที่ (7 ฉบับ ณ ตอนนี้)
   constants.ts                  ← ข้อความ fallback (DEFAULT_REPLY)
   log.ts                        ← ส่ง log คำถาม-คำตอบไปยัง Google Sheet (ถ้าตั้งค่าไว้)
+  quick-replies.ts              ← ปุ่มลัด (quick reply) + ข้อความต้อนรับตอนเพิ่มเพื่อน
 docs/
   apps-script-logger.gs        ← โค้ดอ้างอิงสำหรับวางใน Google Apps Script (ฝั่งรับ log)
 ```
@@ -55,6 +56,7 @@ Endpoint เดียว: `POST /api/line-webhook` — ลำดับการ�
 2. **ตรวจลายเซ็น** — `validateSignature(rawBody, LINE_CHANNEL_SECRET, signature)` ถ้าไม่ผ่าน → ตอบ `401` ทันที ไม่ประมวลผลต่อ (นี่คือจุดที่เคย crash เป็น 500 ตอน `LINE_CHANNEL_SECRET` เป็น `undefined` — ดู Known Constraints)
 3. **parse JSON** เป็น `{ events: webhook.Event[] }` แล้ววิ่ง `Promise.all(events.map(handleEvent))` พร้อมกันทุก event
 4. **ต่อ event หนึ่งอัน (`handleEvent`)**:
+   - ถ้าเป็น `event.type === "follow"` (มีคนเพิ่มบอทเป็นเพื่อน/ปลดบล็อก) → ตอบ `WELCOME_MESSAGE` พร้อมปุ่ม quick reply ทันที แล้ว `return` ไม่ทำขั้นตอนถัดไป
    - ข้ามทันทีถ้าไม่ใช่ text message หรือไม่มี `replyToken`
    - ตั้ง `replyText = DEFAULT_REPLY` ไว้ก่อนเป็นค่าเริ่มต้น (safety net)
    - **try block:**
@@ -62,7 +64,7 @@ Endpoint เดียว: `POST /api/line-webhook` — ลำดับการ�
      b. `buildSystemInstruction(faqList)` — ประกอบพรอมต์เต็ม (role + constraints + current_date + faq + regulations)
      c. `askGemini(systemInstruction, question)` ครอบด้วย `withTimeout(..., 20000ms)` — ถ้า Gemini ไม่ตอบใน 20 วิ ถือว่า fail
         - ภายใน `askGemini`: ถ้ามี `GEMINI_FILE_SEARCH_STORE` แนบ `tools: [{fileSearch}]` เข้าไปด้วย, เรียกโมเดลด้วย `thinkingLevel: MEDIUM`, `maxOutputTokens: 2048`, ดึง citation (ชื่อไฟล์/เลขหน้า) จาก `groundingMetadata.groundingChunks[].retrievedContext` กลับมาด้วย
-     d. ถ้า `finishReason === "MAX_TOKENS"` หรือข้อความว่าง → ใช้ `DEFAULT_REPLY` แทน ไม่งั้นใช้คำตอบจริง + ต่อท้ายด้วย `(อ้างอิงจากเอกสาร: ...)` ถ้ามี citation
+     d. ถ้า `finishReason === "MAX_TOKENS"` หรือข้อความว่าง → ใช้ `DEFAULT_REPLY` แทน ไม่งั้นใช้คำตอบจริง + ต่อท้ายด้วย `(อ้างอิงจากเอกสาร: ...)` ถ้ามี citation — ทุกคำตอบ (รวม fallback) จะแนบปุ่ม quick reply (`lib/quick-replies.ts`) ไปด้วยเสมอ
    - **catch block:** error อะไรก็ตามในขั้นตอนบน (sheet fetch พัง, Gemini error, timeout ฯลฯ) → log แล้วใช้ `DEFAULT_REPLY`
    - **try/catch ที่สอง:** เรียก `client.replyMessage({replyToken, messages: [...]})` ส่งข้อความจริงกลับ LINE — ถ้าขั้นนี้ fail (เช่น token หมดอายุ) จะแค่ log error เงียบๆ **ผู้ใช้จะไม่ได้รับคำตอบเลยโดยไม่มีการแจ้งเตือนใดๆ** (ดู Known Constraints ข้อ 6 ที่เกี่ยวข้อง)
    - **หลังตอบ LINE เสร็จ:** เรียก `logConversation()` (`lib/log.ts`) ส่ง `{question, answer, wasFallback, hadCitation}` ไปยัง `LOG_SHEET_WEBHOOK_URL` (ถ้าตั้งค่าไว้) เพื่อบันทึกลง Google Sheet — ถ้า log ล้มเหลวจะแค่ log error ไม่กระทบผู้ใช้ เพราะเรียกหลังส่งคำตอบไปแล้ว
@@ -149,4 +151,5 @@ Vector store ฝั่ง Google (`fileSearchStores/xxxxx`) เก็บชื�
 3. **หน้าจัดการเอกสารใน File Search store** — list/delete/replace เอกสารที่อัปโหลดไปแล้ว (แก้ Known Constraint ข้อ 7)
 4. **ใช้คอลัมน์ `keywords`/`category` ของ FAQ ให้เกิดประโยชน์** — กรองเฉพาะแถวที่เกี่ยวข้องก่อนยัดเข้าพรอมต์ แทนที่จะส่งทั้งหมดทุกครั้ง (สำคัญขึ้นเรื่อยๆ ถ้า Sheet โตขึ้น)
 5. ~~เก็บ log คำถาม-คำตอบ~~ — **ทำแล้ว** (ก.ย. 2569) ผ่าน Google Sheet + Apps Script ดูหัวข้อ 3.4 ไอเดียต่อยอด: ทำรายงานสรุปอัตโนมัติ (เช่น แจ้งเตือนถ้า `was_fallback` เกินกี่ % ต่อสัปดาห์) หรือย้ายไป Vercel Marketplace database (Neon/Upstash) ถ้า traffic สูงขึ้นจนการเขียน Sheet ตามไม่ทัน
-6. **ระบบยืนยันตัวตนที่แข็งแรงขึ้นสำหรับ `/admin/upload`** ถ้ามีคนใช้งานมากกว่านี้ (login รายคน + audit log)
+6. ~~เพิ่มปุ่ม quick-reply ใน LINE~~ — **ทำแล้ว** (ก.ย. 2569) ดู `lib/quick-replies.ts` แนบไปกับทุกคำตอบ + ข้อความต้อนรับตอนเพิ่มเพื่อนใหม่ (`event.type === "follow"`) ไอเดียต่อยอด: ปรับปุ่มให้ dynamic ตามหมวดที่คุยล่าสุด แทนที่จะเป็นชุดเดิมทุกครั้ง
+7. **ระบบยืนยันตัวตนที่แข็งแรงขึ้นสำหรับ `/admin/upload`** ถ้ามีคนใช้งานมากกว่านี้ (login รายคน + audit log)
