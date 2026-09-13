@@ -19,6 +19,7 @@
 | Vercel plan | Hobby — ยืนยันจาก log จริงว่า `maxDuration` ใช้ได้ถึง 30s (ดู Known Constraints ข้อ 11) |
 | LINE SDK | `@line/bot-sdk ^11.2.0` — ใช้ `messagingApi.MessagingApiClient`, `validateSignature`, `webhook.Event` (โครงสร้าง SDK v11 ต่างจาก v10 ลงมาพอสมควร ระวังเวลาดู example เก่า) |
 | AI SDK | `@google/genai ^2.21.0` — ใช้ `GoogleGenAI`, `ai.models.generateContent`, `ai.fileSearchStores.*` |
+| Background task | `@vercel/functions` (`waitUntil`) — ใช้ให้ `logConversation()` ทำงานเบื้องหลังไม่บล็อก response |
 | AI Model | `gemini-3.5-flash` (hardcode ไว้ใน `lib/gemini.ts`) |
 | External services | (1) LINE Messaging API — webhook + reply (2) Google Gemini API — ตอบคำถาม + File Search RAG (3) Google Sheets — แหล่ง FAQ แบบ publish-to-web CSV |
 | Data store | **ไม่มีฐานข้อมูลจริง** ดูรายละเอียดในหัวข้อ 3 |
@@ -62,12 +63,15 @@ Endpoint เดียว: `POST /api/line-webhook` — ลำดับการ�
    - **try block:**
      a. `getFaqList()` — ดึง FAQ จาก Sheet (cache 60 วิ)
      b. `buildSystemInstruction(faqList)` — ประกอบพรอมต์เต็ม (role + constraints + current_date + faq + regulations)
-     c. `askGemini(systemInstruction, question)` ครอบด้วย `withTimeout(..., 20000ms)` — ถ้า Gemini ไม่ตอบใน 20 วิ ถือว่า fail
-        - ภายใน `askGemini`: ถ้ามี `GEMINI_FILE_SEARCH_STORE` แนบ `tools: [{fileSearch}]` เข้าไปด้วย, เรียกโมเดลด้วย `thinkingLevel: MEDIUM`, `maxOutputTokens: 2048`, ดึง citation (ชื่อไฟล์/เลขหน้า) จาก `groundingMetadata.groundingChunks[].retrievedContext` กลับมาด้วย
+     c. **เรียก Gemini แบบ 2 รอบ (two-pass)**:
+        - **รอบที่ 1** — `askGemini(..., useFileSearch=false)` ไม่เปิด File Search timeout 10s (เร็ว ครอบคลุม FAQ+regulations.ts ซึ่งเป็นกรณีส่วนใหญ่)
+        - **รอบที่ 2** — เปิดเฉพาะตอนรอบแรกได้ผลเป๊ะๆ ว่า "หาไม่เจอ" (ข้อความตรงกับ `DEFAULT_REPLY`, ว่างเปล่า, หรือ `MAX_TOKENS`) และมี `GEMINI_FILE_SEARCH_STORE` ตั้งไว้ → เรียกซ้ำพร้อมเปิด `fileSearch` tool timeout 16s
+        - เหตุผลที่แยก 2 รอบ (ไม่เปิด tool ทุกครั้งเหมือนก่อนหน้านี้): พบจริงในการใช้งานว่าแค่ "มี tool ให้เลือก" ก็ทำให้โมเดลเผื่อคิดเรื่องค้นหาทุกข้อความ กินโทเค็น thinking จนชนเพดาน (`MAX_TOKENS`) แม้คำถามจะตอบได้จาก regulations.ts อยู่แล้วก็ตาม บางครั้งหนักถึงขั้นรวมเวลาทั้ง request เกิน 30s โดน Vercel hard-kill (504) — ดู Known Constraints
+        - ภายใน `askGemini`: `thinkingLevel: MEDIUM` เสมอ, `maxOutputTokens` = 2048 ตอนไม่เปิด tool / 4096 ตอนเปิด tool (ให้ budget เผื่อโทเค็นคิดเรื่องค้นหาที่มากกว่าปกติ), ดึง citation (ชื่อไฟล์/เลขหน้า) จาก `groundingMetadata.groundingChunks[].retrievedContext` กลับมาด้วย
      d. ถ้า `finishReason === "MAX_TOKENS"` หรือข้อความว่าง → ใช้ `DEFAULT_REPLY` แทน ไม่งั้นใช้คำตอบจริง + ต่อท้ายด้วย `(อ้างอิงจากเอกสาร: ...)` ถ้ามี citation — ทุกคำตอบ (รวม fallback) จะแนบปุ่ม quick reply (`lib/quick-replies.ts`) ไปด้วยเสมอ
-   - **catch block:** error อะไรก็ตามในขั้นตอนบน (sheet fetch พัง, Gemini error, timeout ฯลฯ) → log แล้วใช้ `DEFAULT_REPLY`
+   - **catch block:** error อะไรก็ตามในขั้นตอนบน (sheet fetch พัง, Gemini error, timeout ทั้ง 2 รอบ ฯลฯ) → log แล้วใช้ `DEFAULT_REPLY`
    - **try/catch ที่สอง:** เรียก `client.replyMessage({replyToken, messages: [...]})` ส่งข้อความจริงกลับ LINE — ถ้าขั้นนี้ fail (เช่น token หมดอายุ) จะแค่ log error เงียบๆ **ผู้ใช้จะไม่ได้รับคำตอบเลยโดยไม่มีการแจ้งเตือนใดๆ** (ดู Known Constraints ข้อ 6 ที่เกี่ยวข้อง)
-   - **หลังตอบ LINE เสร็จ:** เรียก `logConversation()` (`lib/log.ts`) ส่ง `{question, answer, wasFallback, hadCitation}` ไปยัง `LOG_SHEET_WEBHOOK_URL` (ถ้าตั้งค่าไว้) เพื่อบันทึกลง Google Sheet — ถ้า log ล้มเหลวจะแค่ log error ไม่กระทบผู้ใช้ เพราะเรียกหลังส่งคำตอบไปแล้ว
+   - **หลังตอบ LINE เสร็จ:** เรียก `logConversation()` (`lib/log.ts`) ผ่าน **`waitUntil()`** (จาก `@vercel/functions`) ไม่ใช่ `await` ตรงๆ — response จะถูกส่งกลับทันทีที่ reply เสร็จ ไม่ต้องรอ log (Apps Script Web App บางครั้งตอบช้า เคยทำให้ฟังก์ชันรวมเกิน 30s มาแล้วตอนยังใช้ `await`)
 5. **ตอบ LINE** ด้วย `{status: "ok"}` (LINE ไม่สนใจ body นี้ ขอแค่ status 200)
 
 ---
@@ -136,7 +140,8 @@ Vector store ฝั่ง Google (`fileSearchStores/xxxxx`) เก็บชื�
 5. **คำตอบเชิงคำนวณ (อายุงาน/สิทธิลาตามวันบรรจุ) ยังเป็นการอนุมานของ LLM** แม้จะบังคับให้อิงตัวเลขจากระเบียบจริงเท่านั้นและต้องแนบคำแนะนำให้เช็ค HR ทุกครั้ง แต่ก็ไม่ใช่การการันตีความถูกต้อง 100% ควรสุ่มตรวจคำตอบกลุ่มนี้เป็นระยะ
 6. **ระบบยืนยันตัวตนของ `/admin/*` เป็นรหัสผ่านเดียวแบบธรรมดา** ไม่ timing-safe comparison, ไม่มี rate limit, ไม่มี audit log ว่าใครอัปโหลดอะไรเมื่อไหร่ เหมาะกับทีมเล็กที่ไว้ใจกันเท่านั้น ห้ามแชร์ลิงก์ `/admin/upload` ออกนอกหน่วยงาน
 7. **File Search ยังไม่มีระบบจัดการเอกสารซ้ำ/เวอร์ชัน** — อัปโหลด PDF ฉบับแก้ไขใหม่ จะเป็นการ "เพิ่ม" เอกสารใหม่เข้า store ไม่ใช่แทนที่ของเดิม เอกสารเก่ากับใหม่จะถูกค้นเจอพร้อมกันทั้งคู่ ยังไม่มี UI ให้ลบ/ดูรายการเอกสารที่อัปโหลดไปแล้ว
-8. **`GEMINI_TIMEOUT_MS` (20s) เทียบกับ `maxDuration` (30s)** — เผื่อ buffer ไว้ ~10s จากการสังเกต log จริงตอนนั้น (~270ms) ไม่ใช่การการันตีตายตัว ถ้า Gemini ช้าลงกว่านี้มากๆ (เช่น File Search โหลดหนัก) อาจโดน Vercel ตัดกลางทางแทนที่จะ fallback ปกติ
+8. **เคยเจอจริง (13 ก.ย. 2569): เปิด File Search ทุกข้อความทำให้ thinking กินโทเค็นจนตอบไม่จบ + บาง request โดน Vercel hard-kill ที่ 30s (504)** — สาเหตุคือแค่ "มี fileSearch tool ให้เลือก" ก็ทำให้โมเดลเผื่อคิดเรื่องค้นหาทุกครั้ง แม้คำถามจะตอบได้จาก regulations.ts อยู่แล้ว (เจอเคส `thoughtsTokenCount: 1967` จาก budget 2048 ทั้งที่ `groundingSourceCount: 0` คือค้นแล้วไม่เจออะไรเลย) **แก้แล้ว**ด้วยสถาปัตยกรรม 2 รอบ (two-pass): รอบแรกไม่เปิด tool (เร็ว, timeout 10s), เปิด tool เฉพาะรอบสองตอนรอบแรกหาไม่เจอเป๊ะๆ เท่านั้น (timeout 16s, maxOutputTokens ยกเป็น 4096) และย้าย `logConversation()` ไปใช้ `waitUntil()` แทน `await` ตรงๆ กันไปแย่งเวลากับ critical path — ถ้าในอนาคตมีอาการ MAX_TOKENS/504 อีก ให้เช็คจุดนี้ก่อน เพราะ time budget รวม 2 รอบ (10s+16s=26s) ยังค่อนข้างชิดกับเพดาน 30s ของ Vercel
+9. **`GEMINI_TIMEOUT_MS_PASS1` (10s) / `PASS2` (16s) เป็นค่าที่ประมาณจาก log จริงตอนแก้ปัญหาข้อ 8** ไม่ใช่การการันตีตายตัว ถ้า Gemini ช้าลงกว่านี้ในอนาคต (เช่น เอกสารใน File Search เยอะขึ้นมาก) อาจต้องปรับสัดส่วนใหม่ หรือพิจารณาย้ายไปใช้สถาปัตยกรรมอื่น (เช่น ตอบ LINE แบบ async ไม่รอ reply ทันที)
 9. **ชื่อโมเดล `gemini-3.5-flash` hardcode ไว้จุดเดียว** ใน `lib/gemini.ts` ไม่มี fallback ถ้า Google เปลี่ยน/เลิกซัพพอร์ตชื่อนี้
 10. **ไม่มี automated test เลยในโปรเจกต์นี้** ตรวจสอบทุกครั้งด้วย `tsc --noEmit` + `next build` + ทดสอบจริงบน LINE มือ
 11. **สมมติฐานเรื่อง Vercel Hobby plan ไม่ตรงกับที่เจอจริง** — คอมเมนต์เก่าในโค้ดเคยเขียนว่า Hobby จำกัด 10s แต่ log จริงแสดงว่าใช้ได้ถึง 30s (อาจเพราะ Fluid Compute) ยังไม่ได้ไปยืนยันสาเหตุแน่ชัด ถ้า deploy เริ่ม timeout ผิดปกติให้กลับมาเช็คจุดนี้

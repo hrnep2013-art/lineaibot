@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { messagingApi, validateSignature, webhook } from "@line/bot-sdk";
+import { waitUntil } from "@vercel/functions";
 import { getFaqList } from "@/lib/sheet";
 import { buildSystemInstruction } from "@/lib/prompt";
 import { askGemini } from "@/lib/gemini";
@@ -16,10 +17,12 @@ const client = new messagingApi.MessagingApiClient({
 // (ดู Runtime Logs → Function Invocation → Execution Duration/Maximum)
 export const maxDuration = 30;
 
-// เดิม 8000ms ตอนใช้ thinkingLevel LOW แต่พอยกเป็น MEDIUM เพื่อความสม่ำเสมอของคำตอบ
-// (ดูคอมเมนต์ใน lib/gemini.ts) เวลาคิดนานขึ้น เลยขยับ timeout ให้มี buffer พอ
-// เหลือ ~10s ให้ signature validate + JSON parse + เรียก LINE reply API
-const GEMINI_TIMEOUT_MS = 20000;
+// แยก timeout เป็น 2 รอบ (ดูเหตุผลเต็มที่ lib/gemini.ts และ BLUEPRINT.md หัวข้อ Known Constraints):
+// รอบแรกไม่เปิด File Search ควรเร็ว (พบว่าปกติจบใน 2-4 วิ) ให้ buffer พอประมาณ
+// รอบสอง (เปิด File Search) เจอว่ากินเวลา/โทเค็นคิดเยอะกว่ามาก ให้ budget ที่เหลือเกือบทั้งหมด
+// รวมสองรอบ + reply ต้องไม่เกิน 30s (maxDuration) เผื่อ buffer ไว้ ~2s
+const GEMINI_TIMEOUT_MS_PASS1 = 10000;
+const GEMINI_TIMEOUT_MS_PASS2 = 16000;
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
@@ -68,10 +71,33 @@ async function handleEvent(event: webhook.Event) {
   try {
     const faqList = await getFaqList();
     const systemInstruction = buildSystemInstruction(faqList);
-    const result = await withTimeout(
-      askGemini(systemInstruction, question),
-      GEMINI_TIMEOUT_MS
+
+    // รอบที่ 1: ไม่เปิด File Search — เร็ว เบา ครอบคลุม FAQ + regulations.ts ซึ่งเป็นกรณีส่วนใหญ่
+    const pass1 = await withTimeout(
+      askGemini(systemInstruction, question, false),
+      GEMINI_TIMEOUT_MS_PASS1
     );
+
+    let result = pass1;
+
+    // รอบที่ 2: ลองใหม่พร้อมเปิด File Search เฉพาะตอนรอบแรก "หาไม่เจอ" เป๊ะๆ เท่านั้น
+    // (เทียบ string ตรงตัวกับ DEFAULT_REPLY เพราะพรอมต์บังคับให้ตอบคำต่อคำแบบนี้เวลาไม่พบข้อมูล)
+    // ป้องกันการเปิด tool โดยไม่จำเป็น ซึ่งเคยทำให้โมเดลกินโทเค็นคิดจนตอบไม่จบ (MAX_TOKENS) มาแล้ว
+    if (
+      process.env.GEMINI_FILE_SEARCH_STORE &&
+      (pass1.finishReason === "MAX_TOKENS" || !pass1.text.trim() || pass1.text.trim() === DEFAULT_REPLY)
+    ) {
+      try {
+        const pass2 = await withTimeout(
+          askGemini(systemInstruction, question, true),
+          GEMINI_TIMEOUT_MS_PASS2
+        );
+        result = pass2;
+      } catch (err) {
+        console.error("[line-webhook] pass2 (file search) failed, ใช้ผลรอบแรกแทน:", err);
+        // เก็บ result เป็น pass1 ต่อไป (จะกลายเป็น DEFAULT_REPLY ตามเงื่อนไขด้านล่างอยู่แล้ว)
+      }
+    }
 
     if (result.finishReason === "MAX_TOKENS" || !result.text.trim()) {
       // กันส่งครึ่งประโยคให้บุคลากร ตามที่กำหนดไว้
@@ -110,13 +136,17 @@ async function handleEvent(event: webhook.Event) {
     console.error("[line-webhook] LINE reply failed:", err);
   }
 
-  // log หลังตอบ LINE เสร็จแล้ว ไม่ทำให้การตอบบุคลากรช้าลงเพราะรอ log ก่อน
-  await logConversation({
-    question,
-    answer: replyText,
-    wasFallback: replyText === DEFAULT_REPLY,
-    hadCitation,
-  });
+  // log แบบไม่บล็อก — ใช้ waitUntil แทน await เพื่อไม่ให้การเรียก Apps Script (บางทีช้า)
+  // ไปแย่งเวลาจนฟังก์ชันรวมเกิน 30s ของ Vercel (เคยเกิดจริงจนโดน hard timeout มาแล้ว)
+  // response จะถูกส่งกลับ LINE ทันทีที่ reply เสร็จ ไม่ต้องรอ log
+  waitUntil(
+    logConversation({
+      question,
+      answer: replyText,
+      wasFallback: replyText === DEFAULT_REPLY,
+      hadCitation,
+    })
+  );
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

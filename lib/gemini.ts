@@ -16,12 +16,14 @@ export interface GeminiResult {
 
 export async function askGemini(
   systemInstruction: string,
-  userQuestion: string
+  userQuestion: string,
+  useFileSearch: boolean = false
 ): Promise<GeminiResult> {
   const tools: Tool[] = [];
-  // เปิด File Search เฉพาะตอนตั้งค่า store ไว้แล้วเท่านั้น (ดูขั้นตอนที่ /admin/upload)
-  // กันพังตอนยังไม่ได้ตั้งค่า GEMINI_FILE_SEARCH_STORE — บอทจะทำงานแบบเดิมเป๊ะถ้ายังไม่ตั้ง
-  if (process.env.GEMINI_FILE_SEARCH_STORE) {
+  // เปิด File Search เฉพาะตอนที่ผู้เรียกขอจริงๆ (route.ts จะขอเฉพาะรอบที่ 2 ตอนรอบแรกหาไม่เจอ)
+  // ไม่เปิดทุกครั้งเหมือนเดิม เพราะเจอว่าแค่ "มี tool ให้เลือก" ก็ทำให้โมเดลเผื่อคิดเรื่องค้นหา
+  // จนกินโควตา thinking ไปเยอะโดยไม่จำเป็น แม้คำถามจะตอบได้จาก regulations.ts อยู่แล้วก็ตาม
+  if (useFileSearch && process.env.GEMINI_FILE_SEARCH_STORE) {
     tools.push({
       fileSearch: {
         fileSearchStoreNames: [process.env.GEMINI_FILE_SEARCH_STORE],
@@ -34,14 +36,12 @@ export async function askGemini(
     contents: [{ role: "user", parts: [{ text: userQuestion }] }],
     config: {
       systemInstruction,
-      // หมายเหตุ: ถอด temperature ออกแล้ว เพราะ Gemini 3.x ตระกูลนี้ (รวม 3.5 Flash)
+      // หมายเหตุ: ไม่ใส่ temperature เพราะ Gemini 3.x ตระกูลนี้ (รวม 3.5 Flash)
       // เพิกเฉยค่า temperature/top_p/top_k โดยสมบูรณ์ตามประกาศ migration ล่าสุดของ Google
       // ตัวคุมความสม่ำเสมอ/คุณภาพคำตอบจริงคือ thinkingLevel แทน
-      maxOutputTokens: 2048,
+      // ตอนเปิด File Search ให้ budget เยอะกว่าปกติ เพราะโมเดลกินโทเค็นคิดเรื่องค้นหาเพิ่ม
+      maxOutputTokens: useFileSearch ? 4096 : 2048,
       thinkingConfig: {
-        // ยกจาก LOW เป็น MEDIUM (ค่า default ใหม่ของ Google เอง) เพราะงานตอบคำถามเชิงคำนวณ
-        // (เช่น นับวันจากวันบรรจุ) ต้องคิดหลายขั้นตอน LOW ทำให้บางครั้งคิดไม่ครบแล้ว
-        // เลือกทางลัดตอบ fallback แทน ทำให้คำถามเดิมได้คำตอบไม่เหมือนกันในแต่ละครั้ง
         thinkingLevel: ThinkingLevel.MEDIUM,
       },
       ...(tools.length > 0 ? { tools } : {}),
@@ -70,6 +70,7 @@ export async function askGemini(
   };
 
   console.log("[gemini]", {
+    useFileSearch,
     finishReason: result.finishReason,
     thoughtsTokenCount: result.thoughtsTokenCount,
     candidatesTokenCount: result.candidatesTokenCount,
