@@ -39,8 +39,9 @@ export async function askGemini(
       // หมายเหตุ: ไม่ใส่ temperature เพราะ Gemini 3.x ตระกูลนี้ (รวม 3.5 Flash)
       // เพิกเฉยค่า temperature/top_p/top_k โดยสมบูรณ์ตามประกาศ migration ล่าสุดของ Google
       // ตัวคุมความสม่ำเสมอ/คุณภาพคำตอบจริงคือ thinkingLevel แทน
-      // ตอนเปิด File Search ให้ budget เยอะกว่าปกติ เพราะโมเดลกินโทเค็นคิดเรื่องค้นหาเพิ่ม
-      maxOutputTokens: useFileSearch ? 4096 : 2048,
+      // ตอนเปิด File Search ให้ budget เยอะกว่าปกติมาก เพราะพบว่าโมเดลกินโทเค็นคิดเรื่อง
+      // ค้นหา (แม้บางทีค้นแล้วไม่เจออะไรเลย) มากกว่าที่คาดไว้เดิม เผื่อ headroom ไว้กว้างๆ
+      maxOutputTokens: useFileSearch ? 8192 : 2048,
       thinkingConfig: {
         thinkingLevel: ThinkingLevel.MEDIUM,
       },
