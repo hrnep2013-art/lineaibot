@@ -73,33 +73,43 @@ async function handleEvent(event: webhook.Event) {
     const systemInstruction = buildSystemInstruction(faqList);
 
     // รอบที่ 1: ไม่เปิด File Search — เร็ว เบา ครอบคลุม FAQ + regulations.ts ซึ่งเป็นกรณีส่วนใหญ่
-    const pass1 = await withTimeout(
-      askGemini(systemInstruction, question, false),
-      GEMINI_TIMEOUT_MS_PASS1
-    );
+    let result: Awaited<ReturnType<typeof askGemini>> | null = null;
+    try {
+      result = await withTimeout(
+        askGemini(systemInstruction, question, false),
+        GEMINI_TIMEOUT_MS_PASS1
+      );
+    } catch (err) {
+      // เดิมโค้ดจุดนี้ปล่อยให้ exception หลุดไปที่ catch ใหญ่ด้านล่างทันที ทำให้ไม่เคยได้ลองรอบ 2 เลย
+      // ทั้งที่รอบ 2 (เปิด File Search) อาจช่วยตอบได้ จึงจับ error ตรงนี้แทน แล้วปล่อยให้ไหลไปเช็ค
+      // เงื่อนไขรอบ 2 ด้านล่างต่อ เหมือนกรณีรอบแรกตอบสำเร็จแต่ "หาไม่เจอ"
+      console.error("[line-webhook] pass1 ล้มเหลว/timeout ลองรอบ 2 ต่อ:", err);
+      result = null;
+    }
 
-    let result = pass1;
-
-    // รอบที่ 2: ลองใหม่พร้อมเปิด File Search เฉพาะตอนรอบแรก "หาไม่เจอ" เป๊ะๆ เท่านั้น
-    // (เทียบ string ตรงตัวกับ DEFAULT_REPLY เพราะพรอมต์บังคับให้ตอบคำต่อคำแบบนี้เวลาไม่พบข้อมูล)
+    // รอบที่ 2: ลองใหม่พร้อมเปิด File Search เมื่อรอบแรก "หาไม่เจอ" (ตอบสำเร็จแต่ข้อความว่าง/MAX_TOKENS/
+    // ตรงกับ DEFAULT_REPLY เป๊ะๆ) หรือรอบแรก "ล้มเหลว/timeout ไปเลย" (result เป็น null) ก็ตาม
     // ป้องกันการเปิด tool โดยไม่จำเป็น ซึ่งเคยทำให้โมเดลกินโทเค็นคิดจนตอบไม่จบ (MAX_TOKENS) มาแล้ว
-    if (
-      process.env.GEMINI_FILE_SEARCH_STORE &&
-      (pass1.finishReason === "MAX_TOKENS" || !pass1.text.trim() || pass1.text.trim() === DEFAULT_REPLY)
-    ) {
+    const pass1Failed =
+      !result ||
+      result.finishReason === "MAX_TOKENS" ||
+      !result.text.trim() ||
+      result.text.trim() === DEFAULT_REPLY;
+
+    if (process.env.GEMINI_FILE_SEARCH_STORE && pass1Failed) {
       try {
-        const pass2 = await withTimeout(
+        result = await withTimeout(
           askGemini(systemInstruction, question, true),
           GEMINI_TIMEOUT_MS_PASS2
         );
-        result = pass2;
       } catch (err) {
-        console.error("[line-webhook] pass2 (file search) failed, ใช้ผลรอบแรกแทน:", err);
-        // เก็บ result เป็น pass1 ต่อไป (จะกลายเป็น DEFAULT_REPLY ตามเงื่อนไขด้านล่างอยู่แล้ว)
+        console.error("[line-webhook] pass2 (file search) ล้มเหลว/timeout:", err);
+        // ถ้ารอบแรกเคยตอบสำเร็จ (แค่หาไม่เจอ) ยังใช้ผลรอบแรกต่อไปได้ (ตกไปเป็น DEFAULT_REPLY ด้านล่างอยู่แล้ว)
+        // ถ้ารอบแรก timeout ไปแล้วด้วย (result เป็น null) จะตกไปเป็น DEFAULT_REPLY เช่นกัน
       }
     }
 
-    if (result.finishReason === "MAX_TOKENS" || !result.text.trim()) {
+    if (!result || result.finishReason === "MAX_TOKENS" || !result.text.trim()) {
       // กันส่งครึ่งประโยคให้บุคลากร ตามที่กำหนดไว้
       replyText = DEFAULT_REPLY;
     } else {
