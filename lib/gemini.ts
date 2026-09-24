@@ -32,7 +32,7 @@ export async function askGemini(
   }
 
   const response = await ai.models.generateContent({
-    model: "gemini-3.5-flash",
+    model: "gemini-3.1-flash-lite",
     contents: [{ role: "user", parts: [{ text: userQuestion }] }],
     config: {
       systemInstruction,

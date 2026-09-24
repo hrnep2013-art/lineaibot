@@ -73,6 +73,9 @@ async function handleEvent(event: webhook.Event) {
     const systemInstruction = buildSystemInstruction(faqList);
 
     // รอบที่ 1: ไม่เปิด File Search — เร็ว เบา ครอบคลุม FAQ + regulations.ts ซึ่งเป็นกรณีส่วนใหญ่
+    // จับ error/timeout ของรอบแรกไว้ตรงนี้ (ตั้ง result = null) แทนที่จะปล่อยหลุดไป catch ใหญ่ทันที
+    // เพื่อให้โค้ดด้านล่างเช็คสถานะ result ได้อย่างเดียวกันไม่ว่าจะ error หรือตอบสำเร็จแต่หาไม่เจอ
+    // (แต่ตั้งใจ "ไม่" ลองรอบ 2 ต่อในกรณี error/timeout นี้ — กันเปลืองโควตา 2 เท่าต่อคำถามตอนระบบมีปัญหาอยู่แล้ว)
     let result: Awaited<ReturnType<typeof askGemini>> | null = null;
     try {
       result = await withTimeout(
@@ -80,23 +83,19 @@ async function handleEvent(event: webhook.Event) {
         GEMINI_TIMEOUT_MS_PASS1
       );
     } catch (err) {
-      // เดิมโค้ดจุดนี้ปล่อยให้ exception หลุดไปที่ catch ใหญ่ด้านล่างทันที ทำให้ไม่เคยได้ลองรอบ 2 เลย
-      // ทั้งที่รอบ 2 (เปิด File Search) อาจช่วยตอบได้ จึงจับ error ตรงนี้แทน แล้วปล่อยให้ไหลไปเช็ค
-      // เงื่อนไขรอบ 2 ด้านล่างต่อ เหมือนกรณีรอบแรกตอบสำเร็จแต่ "หาไม่เจอ"
-      console.error("[line-webhook] pass1 ล้มเหลว/timeout ลองรอบ 2 ต่อ:", err);
+      console.error("[line-webhook] pass1 ล้มเหลว/timeout:", err);
       result = null;
     }
 
-    // รอบที่ 2: ลองใหม่พร้อมเปิด File Search เมื่อรอบแรก "หาไม่เจอ" (ตอบสำเร็จแต่ข้อความว่าง/MAX_TOKENS/
-    // ตรงกับ DEFAULT_REPLY เป๊ะๆ) หรือรอบแรก "ล้มเหลว/timeout ไปเลย" (result เป็น null) ก็ตาม
-    // ป้องกันการเปิด tool โดยไม่จำเป็น ซึ่งเคยทำให้โมเดลกินโทเค็นคิดจนตอบไม่จบ (MAX_TOKENS) มาแล้ว
-    const pass1Failed =
-      !result ||
-      result.finishReason === "MAX_TOKENS" ||
-      !result.text.trim() ||
-      result.text.trim() === DEFAULT_REPLY;
+    // ลองรอบ 2 เฉพาะตอนรอบแรก "ตอบสำเร็จแต่หาไม่เจอ" เท่านั้น (result ไม่ใช่ null)
+    // ถ้ารอบแรก error/timeout ไปเลย ไม่ลองรอบ 2 ต่อ กันใช้โควตา 2 เท่าต่อคำถามตอนระบบมีปัญหาอยู่แล้ว
+    const pass1NotFound =
+      !!result &&
+      (result.finishReason === "MAX_TOKENS" ||
+        !result.text.trim() ||
+        result.text.trim() === DEFAULT_REPLY);
 
-    if (process.env.GEMINI_FILE_SEARCH_STORE && pass1Failed) {
+    if (process.env.GEMINI_FILE_SEARCH_STORE && pass1NotFound) {
       try {
         result = await withTimeout(
           askGemini(systemInstruction, question, true),
@@ -104,8 +103,7 @@ async function handleEvent(event: webhook.Event) {
         );
       } catch (err) {
         console.error("[line-webhook] pass2 (file search) ล้มเหลว/timeout:", err);
-        // ถ้ารอบแรกเคยตอบสำเร็จ (แค่หาไม่เจอ) ยังใช้ผลรอบแรกต่อไปได้ (ตกไปเป็น DEFAULT_REPLY ด้านล่างอยู่แล้ว)
-        // ถ้ารอบแรก timeout ไปแล้วด้วย (result เป็น null) จะตกไปเป็น DEFAULT_REPLY เช่นกัน
+        // เก็บผลรอบแรกไว้ต่อไป (จะกลายเป็น DEFAULT_REPLY ตามเงื่อนไขด้านล่างอยู่แล้ว)
       }
     }
 
