@@ -7,6 +7,7 @@ import { askGemini } from "@/lib/gemini";
 import { DEFAULT_REPLY } from "@/lib/constants";
 import { logConversation } from "@/lib/log";
 import { quickReplyItems, WELCOME_MESSAGE } from "@/lib/quick-replies";
+import { matchManualReply } from "@/lib/manuals";
 
 const channelSecret = process.env.LINE_CHANNEL_SECRET!;
 const client = new messagingApi.MessagingApiClient({
@@ -65,6 +66,23 @@ async function handleEvent(event: webhook.Event) {
   if (!replyToken) return;
 
   const question = event.message.text;
+
+  // คำถามเรื่องขั้นตอน/คู่มือการประเมินผลในระบบ DPIS — ตอบลิงก์คู่มือทันที ไม่เรียก Gemini
+  const manualReply = matchManualReply(question);
+  if (manualReply) {
+    try {
+      await client.replyMessage({
+        replyToken,
+        messages: [{ type: "text", text: manualReply, quickReply: { items: quickReplyItems } }],
+      });
+    } catch (err) {
+      console.error("[line-webhook] manual reply failed:", err);
+    }
+    waitUntil(
+      logConversation({ question, answer: manualReply, wasFallback: false, hadCitation: false })
+    );
+    return;
+  }
   let replyText = DEFAULT_REPLY;
   let hadCitation = false;
 

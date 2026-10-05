@@ -28,6 +28,14 @@ export const quickReplyItems: messagingApi.QuickReplyItem[] = [
       text: "กฎการลงเวลาปฏิบัติราชการเป็นอย่างไร",
     },
   },
+  {
+    type: "action",
+    action: {
+      type: "message",
+      label: "คู่มือ DPIS",
+      text: "คู่มือการประเมินผลการปฏิบัติราชการในระบบ DPIS",
+    },
+  },
 ];
 
 export const WELCOME_MESSAGE =
