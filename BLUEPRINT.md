@@ -160,3 +160,12 @@ Vector store ฝั่ง Google (`fileSearchStores/xxxxx`) เก็บชื�
 5. ~~เก็บ log คำถาม-คำตอบ~~ — **ทำแล้ว** (ก.ย. 2569) ผ่าน Google Sheet + Apps Script ดูหัวข้อ 3.4 ไอเดียต่อยอด: ทำรายงานสรุปอัตโนมัติ (เช่น แจ้งเตือนถ้า `was_fallback` เกินกี่ % ต่อสัปดาห์) หรือย้ายไป Vercel Marketplace database (Neon/Upstash) ถ้า traffic สูงขึ้นจนการเขียน Sheet ตามไม่ทัน
 6. ~~เพิ่มปุ่ม quick-reply ใน LINE~~ — **ทำแล้ว** (ก.ย. 2569) ดู `lib/quick-replies.ts` แนบไปกับทุกคำตอบ + ข้อความต้อนรับตอนเพิ่มเพื่อนใหม่ (`event.type === "follow"`) ไอเดียต่อยอด: ปรับปุ่มให้ dynamic ตามหมวดที่คุยล่าสุด แทนที่จะเป็นชุดเดิมทุกครั้ง
 7. **ระบบยืนยันตัวตนที่แข็งแรงขึ้นสำหรับ `/admin/upload`** ถ้ามีคนใช้งานมากกว่านี้ (login รายคน + audit log)
+
+---
+
+## 7. Manual shortcut (DPIS6)
+
+- PDF คู่มืออยู่ที่ `public/manuals/` (`dpis-evaluatee.pdf` = ผู้รับการประเมิน, `dpis-evaluator.pdf` = ผู้ประเมิน) อัปเดตโดยอัปโหลดทับชื่อเดิม ลิงก์ไม่เปลี่ยน
+- `handleEvent` เรียก `matchManualReply(question)` (`lib/manuals.ts`) ก่อนเข้า Gemini: ถ้าคำถามพูดถึงการประเมิน + (DPIS / ในระบบ / คู่มือ) และไม่ใช่คำถามเรื่องหลักเกณฑ์ จะตอบลิงก์คู่มือทันที (ระบุบทบาทได้ ไม่ระบุ = ส่งทั้ง 2 ฉบับ)
+- โดเมนของลิงก์มาจาก env `MANUALS_BASE_URL` (ถ้าตั้ง) หรือ `VERCEL_PROJECT_PRODUCTION_URL` (Vercel ใส่ให้อัตโนมัติ) ถ้าไม่มีทั้งคู่ ฟังก์ชันคืน null และบอทตอบตามปกติ
+- มีปุ่มลัด "คู่มือ DPIS" ใน `lib/quick-replies.ts`
