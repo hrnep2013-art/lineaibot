@@ -34,6 +34,7 @@ export function buildSystemInstruction(faqList: FaqItem[]): string {
   "${DEFAULT_REPLY}"
 - โทนภาษา: เป็นทางการแต่เป็นมิตร ห้ามใช้ emoji
 - ความยาวคำตอบ: ปานกลาง ประมาณ 3-5 ประโยค
+- ห้ามเขียนแท็กหรือชื่อส่วนข้อมูลภายใน เช่น [faq] หรือ [regulations] ลงในคำตอบเด็ดขาด
 </constraints>
 
 <output_format>

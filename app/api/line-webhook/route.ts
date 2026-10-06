@@ -134,9 +134,18 @@ async function handleEvent(event: webhook.Event) {
         // ต่อท้ายด้วยแหล่งอ้างอิงจากเอกสารที่อัปโหลดเข้า File Search (ถ้ามีการค้นจริงในรอบนี้)
         // จำกัดไม่เกิน 3 แหล่ง กันข้อความยาวเกินไป
         hadCitation = true;
-        const cites = result.groundingSources
+        // รวมไฟล์ซ้ำเป็นรายการเดียว (เลขหน้ารวมในวงเล็บเดียว) และตัดรหัส UUID นำหน้าชื่อไฟล์ออก
+        const grouped = new Map<string, number[]>();
+        for (const s of result.groundingSources) {
+          const title =
+            s.title.replace(/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}[\s_-]*/i, "").trim() || s.title;
+          const pages = grouped.get(title) ?? [];
+          if (s.pageNumber && !pages.includes(s.pageNumber)) pages.push(s.pageNumber);
+          grouped.set(title, pages);
+        }
+        const cites = Array.from(grouped.entries())
           .slice(0, 3)
-          .map((s) => (s.pageNumber ? `${s.title} (หน้า ${s.pageNumber})` : s.title))
+          .map(([t, p]) => (p.length ? `${t} (หน้า ${p.sort((a, b) => a - b).join(", ")})` : t))
           .join(", ");
         replyText += `\n\n(อ้างอิงจากเอกสาร: ${cites})`;
       }
