@@ -45,6 +45,32 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // กันชื่อไฟล์ซ้ำ: ถ้ามีเอกสารชื่อเดียวกันอยู่แล้ว ต้องให้ผู้ใช้ยืนยันก่อน (replace=true)
+  // แล้วจะอัปโหลดฉบับใหม่ก่อน ค่อยลบฉบับเก่าหลังอัปโหลดสำเร็จ (กันกรณีอัปโหลดล้มแล้วเสียของเดิม)
+  const replace = formData.get("replace") === "true";
+  const oldDocNames: string[] = [];
+  try {
+    const pager = await ai.fileSearchStores.documents.list({
+      parent: storeName,
+      config: { pageSize: 20 },
+    });
+    for await (const d of pager) {
+      if (d.displayName === file.name && d.name) oldDocNames.push(d.name);
+    }
+  } catch (err) {
+    console.error("[upload-doc] เช็คชื่อซ้ำไม่สำเร็จ (ข้ามไป):", err);
+  }
+
+  if (oldDocNames.length > 0 && !replace) {
+    return NextResponse.json(
+      {
+        duplicate: true,
+        error: `มีเอกสารชื่อ "${file.name}" อยู่แล้ว ${oldDocNames.length} ฉบับ`,
+      },
+      { status: 409 }
+    );
+  }
+
   try {
     const operation = await ai.fileSearchStores.uploadToFileSearchStore({
       fileSearchStoreName: storeName,
@@ -54,9 +80,21 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // อัปโหลดสำเร็จแล้ว ค่อยลบฉบับเก่าชื่อเดียวกัน (ถ้าผู้ใช้ยืนยันให้แทนที่)
+    let removedOld = 0;
+    for (const oldName of oldDocNames) {
+      try {
+        await ai.fileSearchStores.documents.delete({ name: oldName, config: { force: true } });
+        removedOld++;
+      } catch (err) {
+        console.error("[upload-doc] ลบฉบับเก่าไม่สำเร็จ:", oldName, err);
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      message: `อัปโหลด "${file.name}" สำเร็จ ระบบกำลังทำ index อยู่เบื้องหลัง (ปกติเสร็จภายในไม่กี่นาที) รอสักครู่แล้วลองถามบอทได้เลย`,
+      replaced: removedOld,
+      message: `อัปโหลด "${file.name}" สำเร็จ${removedOld > 0 ? ` (แทนที่ฉบับเก่า ${removedOld} ฉบับแล้ว)` : ""} ระบบกำลังทำ index อยู่เบื้องหลัง (ปกติเสร็จภายในไม่กี่นาที) รอสักครู่แล้วลองถามบอทได้เลย`,
       operationName: operation.name,
     });
   } catch (err) {
