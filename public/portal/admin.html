@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>หลังบ้าน — ระบบขอเอกสาร กลุ่มบริหารทรัพยากรบุคคล</title>
+<link rel="stylesheet" href="portal.css">
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<div id="deny" class="wrap" hidden><div class="card"><h2>ไม่มีสิทธิ์เข้าใช้งาน</h2>
+  <p>บัญชี LINE นี้ยังไม่ได้ลงทะเบียนเป็นเจ้าหน้าที่ กรุณาแจ้งผู้ดูแลระบบ</p>
+  <p class="meta">LINE User ID: <span id="uid"></span></p></div></div>
+
+<div id="app" class="layout" hidden>
+  <aside class="side">
+    <h2>ระบบขอเอกสาร<br>กลุ่มบริหารทรัพยากรบุคคล</h2>
+    <button id="n1" class="on">รายการคำขอ</button>
+    <button id="n2">สรุปสถิติ</button>
+    <div class="me" id="me"></div>
+  </aside>
+
+  <main class="adm">
+    <section id="s1">
+      <div class="filters">
+        <div><label for="fFrom">ตั้งแต่วันที่</label><input id="fFrom" type="date"></div>
+        <div><label for="fTo">ถึงวันที่</label><input id="fTo" type="date"></div>
+        <div><label for="fCat">ประเภทเอกสาร</label><select id="fCat"><option value="">ทั้งหมด</option></select></div>
+        <div><label for="fSt">สถานะ</label><select id="fSt"><option value="">ทั้งหมด</option></select></div>
+        <div><label for="fQ">ค้นหาชื่อ/เลขที่</label><input id="fQ"></div>
+        <div><button id="go" class="btn">ค้นหา</button> <button id="csv" class="btn sec">ส่งออก CSV</button></div>
+      </div>
+      <table><thead><tr><th>เลขที่</th><th>วันที่ยื่น</th><th>ผู้ขอ</th><th>ประเภท</th><th>สถานะ</th></tr></thead>
+        <tbody id="rows"></tbody></table>
+      <p id="count" class="meta"></p>
+    </section>
+
+    <section id="s2" hidden>
+      <div class="filters">
+        <div><label for="sFrom">ตั้งแต่วันที่</label><input id="sFrom" type="date"></div>
+        <div><label for="sTo">ถึงวันที่</label><input id="sTo" type="date"></div>
+        <div><label for="sGrp">แสดงจำนวนรายคำขอตาม</label>
+          <select id="sGrp"><option value="byDay">วัน</option><option value="byMonth">เดือน</option><option value="byYear">ปี</option></select></div>
+        <div><button id="sGo" class="btn">แสดงผล</button></div>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="charts">
+        <div class="card"><h3>จำนวนคำขอ</h3><canvas id="cTime"></canvas></div>
+        <div class="card"><h3>สัดส่วนประเภทเอกสาร</h3><canvas id="cCat"></canvas></div>
+        <div class="card"><h3>สถานะการดำเนินการ</h3><canvas id="cSt"></canvas></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal" hidden><div class="card" id="mbody"></div></div>
+
+<script src="common.js"></script>
+<script>
+let me, list = [], stats, charts = {};
+const NAVY = ['#14315c', '#2a5ca8', '#6f95c9', '#b08d3c', '#7a8aa0', '#a8322d', '#1e7a4c'];
+
+async function boot() {
+  if (!(await startLiff())) return;
+  me = await api('getMe');
+  if (!me.isAdmin) { $('#uid').textContent = me.userId; $('#deny').hidden = false; return; }
+  $('#app').hidden = false;
+  $('#me').textContent = me.name + ' (' + (me.role === 'Admin' ? 'เจ้าหน้าที่' : 'ดูอย่างเดียว') + ')';
+  $('#fCat').innerHTML += me.categories.map((c) => `<option>${esc(c.name)}</option>`).join('');
+  $('#fSt').innerHTML += Object.keys(STATUS_TH).map((k) => `<option value="${k}">${STATUS_TH[k]}</option>`).join('');
+  const d = new Date(), pad = (n) => ('0' + n).slice(-2), ym = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  $('#sFrom').value = ym + '-01'; $('#sTo').value = ym + '-' + pad(d.getDate());
+  loadList();
+}
+
+async function loadList() {
+  $('#rows').innerHTML = '<tr><td colspan="5">กำลังโหลด...</td></tr>';
+  list = await api('getRequestsList', {
+    from: $('#fFrom').value, to: $('#fTo').value, category: $('#fCat').value, status: $('#fSt').value, q: $('#fQ').value,
+  });
+  $('#rows').innerHTML = list.map((r, i) => `<tr class="click" data-i="${i}"><td>${esc(r.Request_ID)}</td>
+    <td>${esc(r.Timestamp)}</td><td>${esc(r.User_Name)}<div class="meta">${esc(r.Position)}</div></td>
+    <td>${esc(r.Category)}</td><td>${badge(r.Status)}</td></tr>`).join('') || '<tr><td colspan="5">ไม่พบข้อมูล</td></tr>';
+  $('#count').textContent = 'ทั้งหมด ' + list.length + ' รายการ';
+  $('#rows').querySelectorAll('tr.click').forEach((tr) => tr.onclick = () => openDetail(list[+tr.dataset.i]));
+}
+
+function openDetail(r) {
+  const canEdit = me.role === 'Admin';
+  const links = String(r.Attachment_URLs || '').split('\n').filter(Boolean)
+    .map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">ไฟล์ ${i + 1}</a>`).join(' · ') || '—';
+  $('#mbody').innerHTML = `<h2>${esc(r.Request_ID)}</h2>
+    <dl><dt>ผู้ขอ</dt><dd>${esc(r.User_Name)}</dd><dt>ตำแหน่ง/กลุ่มงาน</dt><dd>${esc(r.Position)} ${esc(r.Department)}</dd>
+    <dt>ประเภท</dt><dd>${esc(r.Category)}</dd><dt>รายละเอียด</dt><dd>${esc(r.Detail)}</dd>
+    <dt>ไฟล์แนบ</dt><dd>${links}</dd><dt>ยื่นเมื่อ</dt><dd>${esc(r.Timestamp)}</dd>
+    <dt>อัปเดตล่าสุด</dt><dd>${esc(r.Updated_At)} ${esc(r.Updated_By)}</dd></dl>
+    ${canEdit ? `<label for="mSt">สถานะ</label><select id="mSt">${Object.keys(STATUS_TH).map((k) =>
+      `<option value="${k}" ${k === r.Status ? 'selected' : ''}>${STATUS_TH[k]}</option>`).join('')}</select>
+      <label for="mRm">หมายเหตุ (ผู้ขอจะได้รับทาง LINE)</label><textarea id="mRm">${esc(r.Admin_Remark)}</textarea>
+      <label for="mPdf">แนบไฟล์ PDF ผลลัพธ์ (ส่งลิงก์ให้ผู้ขอทาง LINE อัตโนมัติ)</label><input id="mPdf" type="file" accept="application/pdf">
+      ${r.Result_URL ? `<p class="meta">เคยแนบแล้ว: <a href="${esc(r.Result_URL)}" target="_blank">เปิดไฟล์</a></p>` : ''}
+      <div id="mErr" class="err"></div>
+      <p><button id="mSave" class="btn">บันทึกและแจ้งผู้ขอ</button> <button id="mX" class="btn sec">ปิด</button></p>`
+      : `<p><button id="mX" class="btn sec">ปิด</button></p>`}`;
+  $('#modal').hidden = false;
+  $('#mX').onclick = () => $('#modal').hidden = true;
+  if (!canEdit) return;
+  $('#mSave').onclick = async () => {
+    $('#mSave').disabled = true; $('#mErr').textContent = '';
+    try {
+      const f = $('#mPdf').files[0];
+      await api('updateStatus', {
+        id: r.Request_ID, status: $('#mSt').value, remark: $('#mRm').value,
+        resultFile: f ? { mime: f.type, data: await toB64(f) } : null,
+      });
+      $('#modal').hidden = true; loadList();
+    } catch (e) { $('#mErr').textContent = 'บันทึกไม่สำเร็จ: ' + e.message; $('#mSave').disabled = false; }
+  };
+}
+
+function exportCsv() {
+  const cols = ['Request_ID', 'Timestamp', 'User_Name', 'Position', 'Department', 'Category', 'Detail', 'Status', 'Admin_Remark', 'Updated_At', 'Updated_By'];
+  const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const body = [cols.join(',')].concat(list.map((r) => cols.map((c) => q(c === 'Status' ? STATUS_TH[r[c]] : r[c])).join(','))).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + body], { type: 'text/csv;charset=utf-8' })); // BOM ให้ Excel อ่านไทยได้
+  a.download = 'hr-requests.csv'; a.click();
+}
+
+function draw(id, type, labels, data, opt = {}) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($('#' + id), {
+    type, data: { labels, datasets: [{ data, backgroundColor: type === 'bar' ? NAVY[0] : NAVY, label: 'จำนวนคำขอ' }] },
+    options: Object.assign({ plugins: { legend: { display: type !== 'bar' } }, scales: type === 'bar' ? { y: { beginAtZero: true, ticks: { precision: 0 } } } : {} }, opt),
+  });
+}
+async function loadStats() {
+  stats = await api('getDashboardStats', { from: $('#sFrom').value, to: $('#sTo').value });
+  const done = stats.byStatus.Completed || 0, pend = stats.byStatus.Pending || 0, pc = (n) => stats.total ? Math.round(n * 100 / stats.total) : 0;
+  $('#kpis').innerHTML = `<div class="kpi"><b>${stats.total}</b>คำขอทั้งหมด</div>
+    <div class="kpi"><b>${pc(done)}%</b>เสร็จสิ้น (${done})</div><div class="kpi"><b>${pc(pend)}%</b>รอดำเนินการ (${pend})</div>
+    <div class="kpi"><b>${stats.byStatus.Rejected || 0}</b>ไม่อนุมัติ</div>`;
+  const t = stats[$('#sGrp').value], tk = Object.keys(t).sort();
+  draw('cTime', 'bar', tk, tk.map((k) => t[k]));
+  draw('cCat', 'pie', Object.keys(stats.byCategory), Object.values(stats.byCategory));
+  const sk = Object.keys(stats.byStatus);
+  draw('cSt', 'doughnut', sk.map((k) => STATUS_TH[k]), sk.map((k) => stats.byStatus[k]));
+}
+
+function nav(n) {
+  $('#s1').hidden = n !== 1; $('#s2').hidden = n !== 2;
+  $('#n1').className = n === 1 ? 'on' : ''; $('#n2').className = n === 2 ? 'on' : '';
+  if (n === 2) loadStats().catch((e) => alert(e.message));
+}
+$('#n1').onclick = () => nav(1); $('#n2').onclick = () => nav(2);
+$('#go').onclick = loadList; $('#csv').onclick = exportCsv; $('#sGo').onclick = loadStats;
+boot().catch((e) => document.body.insertAdjacentHTML('beforeend', `<p class="err wrap">เปิดระบบไม่สำเร็จ: ${esc(e.message)}</p>`));
+</script>
+</body>
+</html>

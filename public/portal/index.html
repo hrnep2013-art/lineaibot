@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ระบบขอเอกสาร กลุ่มบริหารทรัพยากรบุคคล</title>
+<link rel="stylesheet" href="portal.css">
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+</head>
+<body>
+<header class="top">
+  <img id="pic" class="avatar" alt="" hidden>
+  <h1>ระบบขอเอกสาร<small>กลุ่มบริหารทรัพยากรบุคคล กรมส่งเสริมและพัฒนาคุณภาพชีวิตคนพิการ</small></h1>
+</header>
+
+<div class="wrap">
+  <div id="friend" class="notice" hidden>
+    กรุณาเพิ่มเพื่อนบัญชี LINE ของกลุ่มบริหารทรัพยากรบุคคล เพื่อรับเอกสารและการแจ้งเตือนผลการดำเนินการ
+    <p><a class="btn" id="addBot" href="#">เพิ่มเพื่อน</a></p>
+  </div>
+
+  <nav class="tabs">
+    <button id="t1" class="on">ยื่นคำขอ</button>
+    <button id="t2">ติดตามสถานะ</button>
+  </nav>
+
+  <section id="p1">
+    <div class="card">
+      <label for="pos">ตำแหน่ง</label><input id="pos">
+      <label for="dep">กลุ่มงาน/หน่วยงาน</label><input id="dep">
+      <label for="cat">ประเภทเอกสาร</label><select id="cat"></select>
+      <div id="hint" class="hint" hidden></div>
+      <label for="detail">รายละเอียด / วัตถุประสงค์</label><textarea id="detail"></textarea>
+      <div id="attach" hidden>
+        <label for="file">แนบเอกสาร (PDF, PNG, JPG ไม่เกิน 5 MB ต่อไฟล์ สูงสุด 5 ไฟล์) <span id="req"></span></label>
+        <input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple>
+        <ul id="flist" class="files"></ul>
+      </div>
+      <div id="err" class="err" role="alert"></div>
+      <button id="send" class="btn block">ส่งคำขอ</button>
+    </div>
+  </section>
+
+  <section id="p2" hidden><div id="list"></div></section>
+</div>
+
+<script src="common.js"></script>
+<script>
+let me, cats = [], picked = [];
+
+async function boot() {
+  if (!(await startLiff())) return;
+  me = await api('getMe');
+  cats = me.categories;
+  $('#pic').src = me.picture; $('#pic').hidden = !me.picture;
+  $('#pos').value = me.position; $('#dep').value = me.department;
+  $('#cat').innerHTML = '<option value="">— เลือกประเภทเอกสาร —</option>' +
+    cats.map((c) => `<option>${esc(c.name)}</option>`).join('');
+  try {
+    const f = await liff.getFriendship();
+    if (!f.friendFlag) { $('#friend').hidden = false; $('#addBot').href = CONFIG.BOT_ADD_URL; }
+  } catch (e) { /* ยังไม่ได้ผูกบอทกับ LIFF — ข้ามได้ */ }
+}
+
+$('#cat').onchange = () => {
+  const c = cats.find((x) => x.name === $('#cat').value);
+  $('#hint').hidden = !c; $('#hint').textContent = c ? c.hint : '';
+  $('#attach').hidden = !c || c.attach === 'none';
+  $('#req').textContent = c && c.attach === 'required' ? '(จำเป็น)' : '(ถ้ามี)';
+  if (c && c.attach === 'none') { picked = []; drawFiles(); }
+};
+
+$('#file').onchange = (e) => {
+  picked = picked.concat([...e.target.files]).slice(0, 5);
+  e.target.value = ''; drawFiles();
+};
+function drawFiles() {
+  $('#flist').innerHTML = picked.map((f, i) =>
+    `<li><span>${esc(f.name)} (${(f.size / 1048576).toFixed(1)} MB)</span><button data-i="${i}">ลบ</button></li>`).join('');
+  $('#flist').querySelectorAll('button').forEach((b) => b.onclick = () => { picked.splice(+b.dataset.i, 1); drawFiles(); });
+}
+
+$('#send').onclick = async () => {
+  $('#err').textContent = '';
+  if (!$('#cat').value) return $('#err').textContent = 'กรุณาเลือกประเภทเอกสาร';
+  if (!$('#detail').value.trim()) return $('#err').textContent = 'กรุณากรอกรายละเอียด';
+  if (picked.some((f) => f.size > 5 * 1048576)) return $('#err').textContent = 'มีไฟล์ใหญ่เกิน 5 MB';
+  $('#send').disabled = true; $('#send').textContent = 'กำลังส่ง...';
+  try {
+    const files = await Promise.all(picked.map(async (f) => ({ name: f.name, mime: f.type, data: await toB64(f) })));
+    const r = await api('saveRequest', {
+      category: $('#cat').value, detail: $('#detail').value, position: $('#pos').value,
+      department: $('#dep').value, files,
+    });
+    $('#p1').innerHTML = `<div class="card"><h2>ส่งคำขอเรียบร้อย</h2>
+      <p>เลขที่คำขอ <b>${esc(r.id)}</b><br>เจ้าหน้าที่จะแจ้งผลและส่งเอกสารให้ทาง LINE ของกลุ่มบริหารทรัพยากรบุคคล</p>
+      <button class="btn" onclick="location.reload()">ยื่นคำขอใหม่</button></div>`;
+  } catch (e) {
+    $('#err').textContent = 'ส่งไม่สำเร็จ: ' + e.message;
+    $('#send').disabled = false; $('#send').textContent = 'ส่งคำขอ';
+  }
+};
+
+async function loadList() {
+  $('#list').innerHTML = '<p class="meta">กำลังโหลด...</p>';
+  const rs = await api('myRequests');
+  $('#list').innerHTML = rs.length ? rs.map((r) => `<div class="card req">
+    <div class="row"><span class="id">${esc(r.Request_ID)}</span>${badge(r.Status)}</div>
+    <p>${esc(r.Category)}</p>
+    <div class="meta">ยื่นเมื่อ ${esc(r.Timestamp)}</div>
+    ${r.Admin_Remark ? `<p>หมายเหตุ: ${esc(r.Admin_Remark)}</p>` : ''}
+    ${r.Result_URL ? `<a class="btn sec" href="${esc(r.Result_URL)}" target="_blank" rel="noopener">เปิดเอกสาร (PDF)</a>` : ''}
+  </div>`).join('') : '<p class="meta">ยังไม่มีคำขอ</p>';
+}
+
+function tab(n) {
+  $('#p1').hidden = n !== 1; $('#p2').hidden = n !== 2;
+  $('#t1').className = n === 1 ? 'on' : ''; $('#t2').className = n === 2 ? 'on' : '';
+  if (n === 2) loadList().catch((e) => $('#list').textContent = e.message);
+}
+$('#t1').onclick = () => tab(1); $('#t2').onclick = () => tab(2);
+boot().catch((e) => document.body.insertAdjacentHTML('beforeend', `<p class="err wrap">เปิดระบบไม่สำเร็จ: ${esc(e.message)}</p>`));
+</script>
+</body>
+</html>

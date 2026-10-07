@@ -1,0 +1,89 @@
+/* ฟอนต์: TH Sarabun New (ถ้าเครื่องมี) → Sarabun จาก Google Fonts (ดีไซน์เดียวกัน ใช้ได้บนมือถือที่ไม่มีฟอนต์) */
+@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;700&display=swap');
+/* อยากใช้ THSarabunNew จริงทุกเครื่อง: วางไฟล์ .ttf ใน /public/portal/fonts/ แล้วเปิดบล็อกนี้
+@font-face{font-family:'TH Sarabun New';src:url('fonts/THSarabunNew.ttf');font-weight:400}
+@font-face{font-family:'TH Sarabun New';src:url('fonts/THSarabunNew-Bold.ttf');font-weight:700}
+*/
+:root{
+  --navy:#14315c; --navy-d:#0c2142; --blue:#2a5ca8; --paper:#f5f7fa; --line:#c9d3e0;
+  --ink:#1c2736; --mute:#5b6b80; --gold:#b08d3c;
+  --ok:#1e7a4c; --warn:#b26a00; --info:#2a5ca8; --bad:#a8322d;
+}
+*{box-sizing:border-box}
+html{font-size:20px}
+body{margin:0;background:var(--paper);color:var(--ink);line-height:1.45;
+  font-family:'TH Sarabun New','THSarabunNew','Sarabun',Tahoma,sans-serif}
+h1,h2,h3{margin:0;color:var(--navy);font-weight:700}
+a{color:var(--blue)}
+[hidden]{display:none!important}
+
+.top{background:var(--navy-d);color:#fff;border-bottom:3px solid var(--gold);padding:.6rem 1rem;
+  display:flex;align-items:center;gap:.75rem}
+.top h1{color:#fff;font-size:1.2rem;flex:1}
+.top small{display:block;font-weight:400;opacity:.8;font-size:.8rem}
+.avatar{width:36px;height:36px;border-radius:50%;object-fit:cover;background:#fff3}
+.wrap{max-width:720px;margin:0 auto;padding:1rem}
+
+.tabs{display:flex;border-bottom:2px solid var(--line);margin-bottom:1rem}
+.tabs button{flex:1;background:none;border:0;padding:.6rem;font:inherit;font-weight:500;color:var(--mute);
+  border-bottom:3px solid transparent;margin-bottom:-2px;cursor:pointer}
+.tabs button.on{color:var(--navy);border-color:var(--navy);font-weight:700}
+
+.card{background:#fff;border:1px solid var(--line);border-radius:4px;padding:1rem;margin-bottom:.8rem}
+label{display:block;font-weight:500;margin:.8rem 0 .2rem}
+input,select,textarea{width:100%;font:inherit;padding:.45rem .6rem;border:1px solid var(--line);border-radius:3px;background:#fff;color:var(--ink)}
+textarea{min-height:6rem;resize:vertical}
+:focus-visible{outline:3px solid #2a5ca855;outline-offset:1px}
+.hint{background:#eef3fa;border-left:4px solid var(--blue);padding:.5rem .7rem;margin-top:.5rem;font-size:.9rem}
+.notice{background:#fff7e6;border:1px solid #ecc979;padding:.7rem;border-radius:4px;margin-bottom:1rem}
+.err{color:var(--bad);margin-top:.6rem}
+
+.btn{display:inline-block;font:inherit;font-weight:700;background:var(--navy);color:#fff;border:0;border-radius:3px;
+  padding:.55rem 1.2rem;cursor:pointer;text-decoration:none}
+.btn:hover{background:var(--blue)} .btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sec{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+.btn.block{width:100%;margin-top:1rem}
+
+.files{list-style:none;margin:.4rem 0 0;padding:0;font-size:.9rem}
+.files li{display:flex;justify-content:space-between;padding:.25rem .5rem;border-bottom:1px dashed var(--line)}
+.files button{background:none;border:0;color:var(--bad);cursor:pointer;font:inherit}
+
+.badge{display:inline-block;padding:0 .6rem;border-radius:99px;font-size:.85rem;font-weight:700;color:#fff}
+.b-Pending{background:var(--warn)} .b-In\ Progress{background:var(--info)}
+.b-Completed{background:var(--ok)} .b-Rejected{background:var(--bad)}
+.req .row{display:flex;justify-content:space-between;gap:.5rem;align-items:flex-start}
+.req .id{font-weight:700;color:var(--navy)} .req p{margin:.3rem 0;white-space:pre-wrap}
+.meta{color:var(--mute);font-size:.85rem}
+
+/* ---- Admin ---- */
+.layout{display:grid;grid-template-columns:220px 1fr;min-height:100vh}
+.side{background:var(--navy-d);color:#fff;padding:1rem;border-right:3px solid var(--gold)}
+.side h2{color:#fff;font-size:1.1rem;margin-bottom:1rem}
+.side button{display:block;width:100%;text-align:left;background:none;border:0;color:#cfdbef;font:inherit;
+  padding:.5rem .7rem;border-radius:3px;cursor:pointer}
+.side button.on{background:var(--navy);color:#fff;font-weight:700}
+.side .me{margin-top:2rem;font-size:.85rem;opacity:.85}
+main.adm{padding:1rem 1.5rem;overflow-x:auto}
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.6rem;align-items:end;margin-bottom:1rem}
+.filters label{margin:0 0 .15rem;font-size:.85rem}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);font-size:.9rem}
+th{background:var(--navy);color:#fff;text-align:left;padding:.45rem .6rem;font-weight:500;white-space:nowrap}
+td{padding:.45rem .6rem;border-bottom:1px solid var(--line);vertical-align:top}
+tr.click{cursor:pointer} tr.click:hover td{background:#eef3fa}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin:1rem 0}
+.kpi{background:#fff;border:1px solid var(--line);border-top:3px solid var(--navy);padding:.6rem .8rem}
+.kpi b{display:block;font-size:1.8rem;color:var(--navy);line-height:1.1}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:.8rem}
+.charts .card canvas{max-height:280px}
+.modal{position:fixed;inset:0;background:#0c214299;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:1rem;z-index:9}
+.modal .card{max-width:620px;width:100%;margin:2rem auto}
+dl{display:grid;grid-template-columns:8rem 1fr;gap:.2rem .8rem;margin:.6rem 0} dt{color:var(--mute)} dd{margin:0;white-space:pre-wrap}
+
+@media(max-width:760px){
+  html{font-size:19px}
+  .layout{grid-template-columns:1fr}
+  .side{display:flex;gap:.5rem;align-items:center;border-right:0;border-bottom:3px solid var(--gold);padding:.5rem}
+  .side h2,.side .me{display:none} .side button{width:auto}
+  main.adm{padding:.8rem}
+}
+@media(prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
