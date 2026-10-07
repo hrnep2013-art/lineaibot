@@ -49,8 +49,8 @@ textarea{min-height:6rem;resize:vertical}
 .files button{background:none;border:0;color:var(--bad);cursor:pointer;font:inherit}
 
 .badge{display:inline-block;padding:0 .6rem;border-radius:99px;font-size:.85rem;font-weight:700;color:#fff}
-.b-Pending{background:var(--warn)} .b-In\ Progress{background:var(--info)}
-.b-Completed{background:var(--ok)} .b-Rejected{background:var(--bad)}
+.b-Pending{background:var(--warn)} .b-WaitDirector{background:var(--info)} .b-Approved{background:var(--navy)}
+.b-Sent{background:var(--ok)} .b-Rejected{background:var(--bad)}
 .req .row{display:flex;justify-content:space-between;gap:.5rem;align-items:flex-start}
 .req .id{font-weight:700;color:var(--navy)} .req p{margin:.3rem 0;white-space:pre-wrap}
 .meta{color:var(--mute);font-size:.85rem}
@@ -87,3 +87,14 @@ dl{display:grid;grid-template-columns:8rem 1fr;gap:.2rem .8rem;margin:.6rem 0} d
   main.adm{padding:.8rem}
 }
 @media(prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.card h3{font-size:1rem;margin:1.2rem 0 0;padding-bottom:.2rem;border-bottom:1px solid var(--line)}
+.steps{display:flex;gap:.3rem;margin:.5rem 0;flex-wrap:wrap}
+.st{font-size:.8rem;padding:.1rem .6rem;border:1px solid var(--line);color:var(--mute);background:#fff;border-radius:3px}
+.st.done{background:var(--ok);border-color:var(--ok);color:#fff}
+.st.cur{background:var(--info);border-color:var(--info);color:#fff;font-weight:700}
+.st.bad{background:var(--bad);border-color:var(--bad);color:#fff}
+.actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.8rem}
+.btn.danger{background:var(--bad)} .btn.ok{background:var(--ok)}
+@media(max-width:480px){.two{grid-template-columns:1fr}}

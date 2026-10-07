@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ระบบขอเอกสาร กลุ่มบริหารทรัพยากรบุคคล</title>
-<link rel="stylesheet" href="portal.css">
+<link rel="stylesheet" href="/portal/portal.css">
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 </head>
 <body>
@@ -15,7 +15,7 @@
 
 <div class="wrap">
   <div id="friend" class="notice" hidden>
-    กรุณาเพิ่มเพื่อนบัญชี LINE ของกลุ่มบริหารทรัพยากรบุคคล เพื่อรับเอกสารและการแจ้งเตือนผลการดำเนินการ
+    กรุณาเพิ่มเพื่อนบัญชี LINE ของกลุ่มบริหารทรัพยากรบุคคล เพื่อรับแจ้งผลและรับไฟล์เอกสาร PDF จากเจ้าหน้าที่ทางแชท
     <p><a class="btn" id="addBot" href="#">เพิ่มเพื่อน</a></p>
   </div>
 
@@ -26,13 +26,27 @@
 
   <section id="p1">
     <div class="card">
-      <label for="pos">ตำแหน่ง</label><input id="pos">
-      <label for="dep">กลุ่มงาน/หน่วยงาน</label><input id="dep">
-      <label for="cat">ประเภทเอกสาร</label><select id="cat"></select>
+      <h2>แบบคำขอเอกสาร</h2>
+      <p class="meta">คำขอจะผ่านการตรวจสอบโดยเจ้าหน้าที่ และการอนุมัติโดย ผอ.กลุ่มบริหารทรัพยากรบุคคล จากนั้นเจ้าหน้าที่จะส่งไฟล์ PDF ให้ทางแชท LINE นี้</p>
+
+      <h3>ข้อมูลผู้ขอ</h3>
+      <div class="two">
+        <div><label for="fn">ชื่อ *</label><input id="fn" autocomplete="given-name"></div>
+        <div><label for="ln">นามสกุล *</label><input id="ln" autocomplete="family-name"></div>
+      </div>
+      <label for="pos">ตำแหน่ง *</label><input id="pos">
+      <label for="dep">กลุ่มงาน/หน่วยงาน *</label><input id="dep">
+      <label for="tel">เบอร์โทรติดต่อ</label><input id="tel" type="tel" autocomplete="tel">
+
+      <h3>รายการที่ขอ</h3>
+      <label for="cat">ประเภทเอกสาร *</label><select id="cat"></select>
       <div id="hint" class="hint" hidden></div>
-      <label for="detail">รายละเอียด / วัตถุประสงค์</label><textarea id="detail"></textarea>
+      <label for="detail">ต้องการเอกสารอะไร (ระบุให้ชัดเจน เช่น ชื่อเอกสาร จำนวนฉบับ) *</label><textarea id="detail"></textarea>
+      <label for="purpose">นำไปใช้ทำอะไร (วัตถุประสงค์) *</label><textarea id="purpose"></textarea>
+      <label for="to">นำไปยื่นที่หน่วยงานใด (ถ้ามี)</label><input id="to">
+
       <div id="attach" hidden>
-        <label for="file">แนบเอกสาร (PDF, PNG, JPG ไม่เกิน 5 MB ต่อไฟล์ สูงสุด 5 ไฟล์) <span id="req"></span></label>
+        <label for="file">แนบเอกสารประกอบ (PDF, PNG, JPG ไม่เกิน 5 MB ต่อไฟล์ สูงสุด 5 ไฟล์) <span id="req"></span></label>
         <input id="file" type="file" accept=".pdf,.png,.jpg,.jpeg" multiple>
         <ul id="flist" class="files"></ul>
       </div>
@@ -44,18 +58,19 @@
   <section id="p2" hidden><div id="list"></div></section>
 </div>
 
-<script src="common.js"></script>
+<script src="/portal/common.js"></script>
 <script>
 let me, cats = [], picked = [];
+const V = (id) => $('#' + id).value.trim();
 
 async function boot() {
   if (!(await startLiff())) return;
   me = await api('getMe');
   cats = me.categories;
   $('#pic').src = me.picture; $('#pic').hidden = !me.picture;
-  $('#pos').value = me.position; $('#dep').value = me.department;
-  $('#cat').innerHTML = '<option value="">— เลือกประเภทเอกสาร —</option>' +
-    cats.map((c) => `<option>${esc(c.name)}</option>`).join('');
+  $('#fn').value = me.firstName; $('#ln').value = me.lastName; $('#pos').value = me.position;
+  $('#dep').value = me.department; $('#tel').value = me.phone;
+  $('#cat').innerHTML = '<option value="">— เลือกประเภทเอกสาร —</option>' + cats.map((c) => `<option>${esc(c.name)}</option>`).join('');
   try {
     const f = await liff.getFriendship();
     if (!f.friendFlag) { $('#friend').hidden = false; $('#addBot').href = CONFIG.BOT_ADD_URL; }
@@ -69,50 +84,55 @@ $('#cat').onchange = () => {
   $('#req').textContent = c && c.attach === 'required' ? '(จำเป็น)' : '(ถ้ามี)';
   if (c && c.attach === 'none') { picked = []; drawFiles(); }
 };
-
-$('#file').onchange = (e) => {
-  picked = picked.concat([...e.target.files]).slice(0, 5);
-  e.target.value = ''; drawFiles();
-};
+$('#file').onchange = (e) => { picked = picked.concat([...e.target.files]).slice(0, 5); e.target.value = ''; drawFiles(); };
 function drawFiles() {
-  $('#flist').innerHTML = picked.map((f, i) =>
-    `<li><span>${esc(f.name)} (${(f.size / 1048576).toFixed(1)} MB)</span><button data-i="${i}">ลบ</button></li>`).join('');
+  $('#flist').innerHTML = picked.map((f, i) => `<li><span>${esc(f.name)} (${(f.size / 1048576).toFixed(1)} MB)</span><button data-i="${i}">ลบ</button></li>`).join('');
   $('#flist').querySelectorAll('button').forEach((b) => b.onclick = () => { picked.splice(+b.dataset.i, 1); drawFiles(); });
 }
 
 $('#send').onclick = async () => {
-  $('#err').textContent = '';
-  if (!$('#cat').value) return $('#err').textContent = 'กรุณาเลือกประเภทเอกสาร';
-  if (!$('#detail').value.trim()) return $('#err').textContent = 'กรุณากรอกรายละเอียด';
-  if (picked.some((f) => f.size > 5 * 1048576)) return $('#err').textContent = 'มีไฟล์ใหญ่เกิน 5 MB';
+  const err = (m) => $('#err').textContent = m;
+  err('');
+  const need = { fn: 'ชื่อ', ln: 'นามสกุล', pos: 'ตำแหน่ง', dep: 'กลุ่มงาน/หน่วยงาน', cat: 'ประเภทเอกสาร', detail: 'เอกสารที่ต้องการ', purpose: 'วัตถุประสงค์' };
+  for (const k in need) if (!V(k)) return err('กรุณากรอก' + need[k]);
+  const c = cats.find((x) => x.name === V('cat'));
+  if (c.attach === 'required' && !picked.length) return err('ประเภทนี้ต้องแนบเอกสารประกอบ');
+  if (picked.some((f) => f.size > 5 * 1048576)) return err('มีไฟล์ใหญ่เกิน 5 MB');
   $('#send').disabled = true; $('#send').textContent = 'กำลังส่ง...';
   try {
     const files = await Promise.all(picked.map(async (f) => ({ name: f.name, mime: f.type, data: await toB64(f) })));
     const r = await api('saveRequest', {
-      category: $('#cat').value, detail: $('#detail').value, position: $('#pos').value,
-      department: $('#dep').value, files,
+      firstName: V('fn'), lastName: V('ln'), position: V('pos'), department: V('dep'), phone: V('tel'),
+      category: V('cat'), detail: V('detail'), purpose: V('purpose'), submitTo: V('to'), files,
     });
     $('#p1').innerHTML = `<div class="card"><h2>ส่งคำขอเรียบร้อย</h2>
-      <p>เลขที่คำขอ <b>${esc(r.id)}</b><br>เจ้าหน้าที่จะแจ้งผลและส่งเอกสารให้ทาง LINE ของกลุ่มบริหารทรัพยากรบุคคล</p>
+      <p>เลขที่คำขอ <b>${esc(r.id)}</b><br>เจ้าหน้าที่จะตรวจสอบ และส่งต่อให้ ผอ.กลุ่มบริหารทรัพยากรบุคคลอนุมัติ ระบบจะแจ้งความคืบหน้าทาง LINE</p>
       <button class="btn" onclick="location.reload()">ยื่นคำขอใหม่</button></div>`;
-  } catch (e) {
-    $('#err').textContent = 'ส่งไม่สำเร็จ: ' + e.message;
-    $('#send').disabled = false; $('#send').textContent = 'ส่งคำขอ';
-  }
+  } catch (e) { err('ส่งไม่สำเร็จ: ' + e.message); $('#send').disabled = false; $('#send').textContent = 'ส่งคำขอ'; }
 };
+
+function steps(r) {
+  const s = r.Status, rej = s === 'Rejected', byDir = !!r.Director_By;
+  const st = [
+    ['เจ้าหน้าที่ตรวจสอบ', s === 'Pending' ? 'cur' : rej && !byDir ? 'bad' : 'done'],
+    ['ผอ. อนุมัติ', s === 'WaitDirector' ? 'cur' : rej && byDir ? 'bad' : (s === 'Approved' || s === 'Sent') ? 'done' : ''],
+    ['ส่งเอกสาร PDF', s === 'Approved' ? 'cur' : s === 'Sent' ? 'done' : ''],
+  ];
+  return '<div class="steps">' + st.map(([t, c]) => `<span class="st ${c}">${t}</span>`).join('') + '</div>';
+}
 
 async function loadList() {
   $('#list').innerHTML = '<p class="meta">กำลังโหลด...</p>';
   const rs = await api('myRequests');
   $('#list').innerHTML = rs.length ? rs.map((r) => `<div class="card req">
     <div class="row"><span class="id">${esc(r.Request_ID)}</span>${badge(r.Status)}</div>
-    <p>${esc(r.Category)}</p>
+    <p>${esc(r.Category)}</p>${steps(r)}
     <div class="meta">ยื่นเมื่อ ${esc(r.Timestamp)}</div>
-    ${r.Admin_Remark ? `<p>หมายเหตุ: ${esc(r.Admin_Remark)}</p>` : ''}
-    ${r.Result_URL ? `<a class="btn sec" href="${esc(r.Result_URL)}" target="_blank" rel="noopener">เปิดเอกสาร (PDF)</a>` : ''}
+    ${r.Staff_Remark ? `<p>หมายเหตุเจ้าหน้าที่: ${esc(r.Staff_Remark)}</p>` : ''}
+    ${r.Director_Remark ? `<p>หมายเหตุ ผอ.: ${esc(r.Director_Remark)}</p>` : ''}
+    ${r.Status === 'Sent' ? '<p class="meta">เจ้าหน้าที่ส่งไฟล์ PDF ให้ทางแชท LINE นี้แล้ว</p>' : ''}
   </div>`).join('') : '<p class="meta">ยังไม่มีคำขอ</p>';
 }
-
 function tab(n) {
   $('#p1').hidden = n !== 1; $('#p2').hidden = n !== 2;
   $('#t1').className = n === 1 ? 'on' : ''; $('#t2').className = n === 2 ? 'on' : '';

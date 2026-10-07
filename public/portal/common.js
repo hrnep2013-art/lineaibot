@@ -7,7 +7,7 @@ const CONFIG = {
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const STATUS_TH = { Pending: 'รอดำเนินการ', 'In Progress': 'กำลังตรวจสอบ', Completed: 'เสร็จสิ้น', Rejected: 'ไม่อนุมัติ' };
+const STATUS_TH = { Pending: 'รอเจ้าหน้าที่ตรวจสอบ', WaitDirector: 'รอ ผอ. อนุมัติ', Approved: 'อนุมัติแล้ว รอส่งเอกสาร', Sent: 'ส่งเอกสารแล้ว', Rejected: 'ไม่อนุมัติ' };
 const badge = (s) => `<span class="badge b-${esc(s)}">${esc(STATUS_TH[s] || s)}</span>`;
 
 // ส่งเป็น text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script

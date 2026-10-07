@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>หลังบ้าน — ระบบขอเอกสาร กลุ่มบริหารทรัพยากรบุคคล</title>
-<link rel="stylesheet" href="portal.css">
+<link rel="stylesheet" href="/portal/portal.css">
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -56,7 +56,7 @@
 
 <div id="modal" class="modal" hidden><div class="card" id="mbody"></div></div>
 
-<script src="common.js"></script>
+<script src="/portal/common.js"></script>
 <script>
 let me, list = [], stats, charts = {};
 const NAVY = ['#14315c', '#2a5ca8', '#6f95c9', '#b08d3c', '#7a8aa0', '#a8322d', '#1e7a4c'];
@@ -66,11 +66,13 @@ async function boot() {
   me = await api('getMe');
   if (!me.isAdmin) { $('#uid').textContent = me.userId; $('#deny').hidden = false; return; }
   $('#app').hidden = false;
-  $('#me').textContent = me.name + ' (' + (me.role === 'Admin' ? 'เจ้าหน้าที่' : 'ดูอย่างเดียว') + ')';
+  const ROLE_TH = { Staff: 'เจ้าหน้าที่', Director: 'ผอ.กลุ่มบริหารทรัพยากรบุคคล', Viewer: 'ดูอย่างเดียว' };
+  $('#me').textContent = me.name + ' (' + (ROLE_TH[me.role] || me.role) + ')';
   $('#fCat').innerHTML += me.categories.map((c) => `<option>${esc(c.name)}</option>`).join('');
   $('#fSt').innerHTML += Object.keys(STATUS_TH).map((k) => `<option value="${k}">${STATUS_TH[k]}</option>`).join('');
   const d = new Date(), pad = (n) => ('0' + n).slice(-2), ym = d.getFullYear() + '-' + pad(d.getMonth() + 1);
   $('#sFrom').value = ym + '-01'; $('#sTo').value = ym + '-' + pad(d.getDate());
+  $('#fSt').value = me.role === 'Staff' ? 'Pending' : me.role === 'Director' ? 'WaitDirector' : ''; // เริ่มที่งานที่รอตนเอง
   loadList();
 }
 
@@ -87,40 +89,42 @@ async function loadList() {
 }
 
 function openDetail(r) {
-  const canEdit = me.role === 'Admin';
   const links = String(r.Attachment_URLs || '').split('\n').filter(Boolean)
     .map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">ไฟล์ ${i + 1}</a>`).join(' · ') || '—';
-  $('#mbody').innerHTML = `<h2>${esc(r.Request_ID)}</h2>
+  const step = (who, by, at, rm) => by ? `<dt>${who}</dt><dd>${esc(by)} ${esc(at)}${rm ? '\nหมายเหตุ: ' + esc(rm) : ''}</dd>` : '';
+  const can = (me.role === 'Staff' && r.Status === 'Pending') || (me.role === 'Director' && r.Status === 'WaitDirector');
+  const sendBox = me.role === 'Staff' && r.Status === 'Approved';
+  $('#mbody').innerHTML = `<h2>${esc(r.Request_ID)} ${badge(r.Status)}</h2>
     <dl><dt>ผู้ขอ</dt><dd>${esc(r.User_Name)}</dd><dt>ตำแหน่ง/กลุ่มงาน</dt><dd>${esc(r.Position)} ${esc(r.Department)}</dd>
-    <dt>ประเภท</dt><dd>${esc(r.Category)}</dd><dt>รายละเอียด</dt><dd>${esc(r.Detail)}</dd>
-    <dt>ไฟล์แนบ</dt><dd>${links}</dd><dt>ยื่นเมื่อ</dt><dd>${esc(r.Timestamp)}</dd>
-    <dt>อัปเดตล่าสุด</dt><dd>${esc(r.Updated_At)} ${esc(r.Updated_By)}</dd></dl>
-    ${canEdit ? `<label for="mSt">สถานะ</label><select id="mSt">${Object.keys(STATUS_TH).map((k) =>
-      `<option value="${k}" ${k === r.Status ? 'selected' : ''}>${STATUS_TH[k]}</option>`).join('')}</select>
-      <label for="mRm">หมายเหตุ (ผู้ขอจะได้รับทาง LINE)</label><textarea id="mRm">${esc(r.Admin_Remark)}</textarea>
-      <label for="mPdf">แนบไฟล์ PDF ผลลัพธ์ (ส่งลิงก์ให้ผู้ขอทาง LINE อัตโนมัติ)</label><input id="mPdf" type="file" accept="application/pdf">
-      ${r.Result_URL ? `<p class="meta">เคยแนบแล้ว: <a href="${esc(r.Result_URL)}" target="_blank">เปิดไฟล์</a></p>` : ''}
-      <div id="mErr" class="err"></div>
-      <p><button id="mSave" class="btn">บันทึกและแจ้งผู้ขอ</button> <button id="mX" class="btn sec">ปิด</button></p>`
-      : `<p><button id="mX" class="btn sec">ปิด</button></p>`}`;
+    <dt>โทรศัพท์</dt><dd>${esc(r.Phone) || '—'}</dd><dt>ประเภท</dt><dd>${esc(r.Category)}</dd>
+    <dt>เอกสารที่ต้องการ</dt><dd>${esc(r.Detail)}</dd><dt>วัตถุประสงค์</dt><dd>${esc(r.Purpose)}</dd>
+    <dt>ยื่นที่</dt><dd>${esc(r.Submit_To) || '—'}</dd><dt>ไฟล์แนบ</dt><dd>${links}</dd><dt>ยื่นเมื่อ</dt><dd>${esc(r.Timestamp)}</dd>
+    ${step('เจ้าหน้าที่', r.Staff_By, r.Staff_At, r.Staff_Remark)}${step('ผอ.', r.Director_By, r.Director_At, r.Director_Remark)}
+    ${step('ส่งเอกสารโดย', r.Sent_By, r.Sent_At, '')}</dl>
+    ${can ? `<label for="mRm">หมายเหตุ (ถ้าไม่อนุมัติต้องระบุเหตุผล ผู้ขอจะได้รับทาง LINE)</label><textarea id="mRm"></textarea>
+      <div class="actions"><button id="mOk" class="btn ok">${me.role === 'Staff' ? 'ตรวจสอบแล้ว ส่งต่อ ผอ.' : 'อนุมัติ'}</button>
+      <button id="mNo" class="btn danger">ไม่อนุมัติ</button></div>` : ''}
+    ${sendBox ? `<div class="hint">ผอ. อนุมัติแล้ว: ส่งไฟล์ PDF ให้ผู้ขอทางแชท LINE OA (ค้นหาจากชื่อ LINE) แล้วกดบันทึกด้านล่าง</div>
+      <div class="actions"><button id="mSent" class="btn ok">บันทึกว่าส่งเอกสารแล้ว</button></div>` : ''}
+    <div id="mErr" class="err"></div>
+    <p><button id="mX" class="btn sec">ปิด</button></p>`;
   $('#modal').hidden = false;
   $('#mX').onclick = () => $('#modal').hidden = true;
-  if (!canEdit) return;
-  $('#mSave').onclick = async () => {
-    $('#mSave').disabled = true; $('#mErr').textContent = '';
-    try {
-      const f = $('#mPdf').files[0];
-      await api('updateStatus', {
-        id: r.Request_ID, status: $('#mSt').value, remark: $('#mRm').value,
-        resultFile: f ? { mime: f.type, data: await toB64(f) } : null,
-      });
-      $('#modal').hidden = true; loadList();
-    } catch (e) { $('#mErr').textContent = 'บันทึกไม่สำเร็จ: ' + e.message; $('#mSave').disabled = false; }
+  const run = (action, payload, btns) => async () => {
+    btns.forEach((b) => b.disabled = true); $('#mErr').textContent = '';
+    try { await api(action, payload()); $('#modal').hidden = true; loadList(); }
+    catch (e) { $('#mErr').textContent = 'ไม่สำเร็จ: ' + e.message; btns.forEach((b) => b.disabled = false); }
   };
+  if (can) {
+    const bs = [$('#mOk'), $('#mNo')];
+    $('#mOk').onclick = run('reviewRequest', () => ({ id: r.Request_ID, decision: 'approve', remark: $('#mRm').value }), bs);
+    $('#mNo').onclick = run('reviewRequest', () => ({ id: r.Request_ID, decision: 'reject', remark: $('#mRm').value }), bs);
+  }
+  if (sendBox) $('#mSent').onclick = run('markSent', () => ({ id: r.Request_ID }), [$('#mSent')]);
 }
 
 function exportCsv() {
-  const cols = ['Request_ID', 'Timestamp', 'User_Name', 'Position', 'Department', 'Category', 'Detail', 'Status', 'Admin_Remark', 'Updated_At', 'Updated_By'];
+  const cols = ['Request_ID', 'Timestamp', 'User_Name', 'Position', 'Department', 'Phone', 'Category', 'Detail', 'Purpose', 'Submit_To', 'Status', 'Staff_By', 'Staff_Remark', 'Director_By', 'Director_Remark', 'Sent_At'];
   const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const body = [cols.join(',')].concat(list.map((r) => cols.map((c) => q(c === 'Status' ? STATUS_TH[r[c]] : r[c])).join(','))).join('\r\n');
   const a = document.createElement('a');
@@ -137,9 +141,9 @@ function draw(id, type, labels, data, opt = {}) {
 }
 async function loadStats() {
   stats = await api('getDashboardStats', { from: $('#sFrom').value, to: $('#sTo').value });
-  const done = stats.byStatus.Completed || 0, pend = stats.byStatus.Pending || 0, pc = (n) => stats.total ? Math.round(n * 100 / stats.total) : 0;
+  const done = stats.byStatus.Sent || 0, pend = (stats.byStatus.Pending || 0) + (stats.byStatus.WaitDirector || 0) + (stats.byStatus.Approved || 0), pc = (n) => stats.total ? Math.round(n * 100 / stats.total) : 0;
   $('#kpis').innerHTML = `<div class="kpi"><b>${stats.total}</b>คำขอทั้งหมด</div>
-    <div class="kpi"><b>${pc(done)}%</b>เสร็จสิ้น (${done})</div><div class="kpi"><b>${pc(pend)}%</b>รอดำเนินการ (${pend})</div>
+    <div class="kpi"><b>${pc(done)}%</b>ส่งเอกสารแล้ว (${done})</div><div class="kpi"><b>${pc(pend)}%</b>อยู่ระหว่างดำเนินการ (${pend})</div>
     <div class="kpi"><b>${stats.byStatus.Rejected || 0}</b>ไม่อนุมัติ</div>`;
   const t = stats[$('#sGrp').value], tk = Object.keys(t).sort();
   draw('cTime', 'bar', tk, tk.map((k) => t[k]));
