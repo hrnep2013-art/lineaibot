@@ -9,6 +9,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
+<div id="login" class="wrap" hidden><div class="card" style="max-width:420px;margin:3rem auto">
+  <h2>เข้าสู่ระบบหลังบ้าน</h2><p class="meta">ระบบขอเอกสาร กลุ่มบริหารทรัพยากรบุคคล</p>
+  <label for="lu">ชื่อผู้ใช้</label><input id="lu" autocomplete="username">
+  <label for="lp">รหัสผ่าน</label><input id="lp" type="password" autocomplete="current-password">
+  <div id="lerr" class="err" role="alert"></div>
+  <button id="lgo" class="btn block">เข้าสู่ระบบ</button>
+  <button id="lline" class="btn sec block">เข้าสู่ระบบด้วย LINE</button>
+</div></div>
+
 <div id="deny" class="wrap" hidden><div class="card"><h2>ไม่มีสิทธิ์เข้าใช้งาน</h2>
   <p>บัญชี LINE นี้ยังไม่ได้ลงทะเบียนเป็นเจ้าหน้าที่ กรุณาแจ้งผู้ดูแลระบบ</p>
   <p class="meta">LINE User ID: <span id="uid"></span></p></div></div>
@@ -19,6 +28,7 @@
     <button id="n1" class="on">รายการคำขอ</button>
     <button id="n2">สรุปสถิติ</button>
     <div class="me" id="me"></div>
+    <button id="out" style="margin-top:1rem">ออกจากระบบ</button>
   </aside>
 
   <main class="adm">
@@ -61,8 +71,9 @@
 let me, list = [], stats, charts = {};
 const NAVY = ['#14315c', '#2a5ca8', '#6f95c9', '#b08d3c', '#7a8aa0', '#a8322d', '#1e7a4c'];
 
-async function boot() {
-  if (!(await startLiff())) return;
+async function start() {
+  $('#login').hidden = true;
+  if (!sessionStorage.getItem('hr_sess') && !(await startLiff())) return;
   me = await api('getMe');
   if (!me.isAdmin) { $('#uid').textContent = me.userId; $('#deny').hidden = false; return; }
   $('#app').hidden = false;
@@ -94,18 +105,20 @@ function openDetail(r) {
   const step = (who, by, at, rm) => by ? `<dt>${who}</dt><dd>${esc(by)} ${esc(at)}${rm ? '\nหมายเหตุ: ' + esc(rm) : ''}</dd>` : '';
   const can = (me.role === 'Staff' && r.Status === 'Pending') || (me.role === 'Director' && r.Status === 'WaitDirector');
   const sendBox = me.role === 'Staff' && r.Status === 'Approved';
+  const sentLinks = String(r.Sent_File_URLs || '').split('\n').filter(Boolean).map((u, i) => ` · <a href="${esc(u)}" target="_blank" rel="noopener">สำเนาไฟล์ ${i + 1}</a>`).join('');
   $('#mbody').innerHTML = `<h2>${esc(r.Request_ID)} ${badge(r.Status)}</h2>
     <dl><dt>ผู้ขอ</dt><dd>${esc(r.User_Name)}</dd><dt>ตำแหน่ง/กลุ่มงาน</dt><dd>${esc(r.Position)} ${esc(r.Department)}</dd>
-    <dt>โทรศัพท์</dt><dd>${esc(r.Phone) || '—'}</dd><dt>ประเภท</dt><dd>${esc(r.Category)}</dd>
+    <dt>โทรศัพท์</dt><dd>${esc(r.Phone) || '—'}</dd><dt>อีเมลผู้ขอ</dt><dd>${esc(r.Email)}</dd><dt>ประเภท</dt><dd>${esc(r.Category)}</dd>
     <dt>เอกสารที่ต้องการ</dt><dd>${esc(r.Detail)}</dd><dt>วัตถุประสงค์</dt><dd>${esc(r.Purpose)}</dd>
     <dt>ยื่นที่</dt><dd>${esc(r.Submit_To) || '—'}</dd><dt>ไฟล์แนบ</dt><dd>${links}</dd><dt>ยื่นเมื่อ</dt><dd>${esc(r.Timestamp)}</dd>
     ${step('เจ้าหน้าที่', r.Staff_By, r.Staff_At, r.Staff_Remark)}${step('ผอ.', r.Director_By, r.Director_At, r.Director_Remark)}
-    ${step('ส่งเอกสารโดย', r.Sent_By, r.Sent_At, '')}</dl>
+    ${r.Sent_By ? `<dt>ส่งอีเมล</dt><dd>${esc(r.Sent_By)} ${esc(r.Sent_At)}\nถึง ${esc(r.Email)}${sentLinks}</dd>` : ''}</dl>
     ${can ? `<label for="mRm">หมายเหตุ (ถ้าไม่อนุมัติต้องระบุเหตุผล ผู้ขอจะได้รับทาง LINE)</label><textarea id="mRm"></textarea>
       <div class="actions"><button id="mOk" class="btn ok">${me.role === 'Staff' ? 'ตรวจสอบแล้ว ส่งต่อ ผอ.' : 'อนุมัติ'}</button>
       <button id="mNo" class="btn danger">ไม่อนุมัติ</button></div>` : ''}
-    ${sendBox ? `<div class="hint">ผอ. อนุมัติแล้ว: ส่งไฟล์ PDF ให้ผู้ขอทางแชท LINE OA (ค้นหาจากชื่อ LINE) แล้วกดบันทึกด้านล่าง</div>
-      <div class="actions"><button id="mSent" class="btn ok">บันทึกว่าส่งเอกสารแล้ว</button></div>` : ''}
+    ${sendBox ? `<div class="hint">ผอ. อนุมัติแล้ว: แนบไฟล์ PDF ที่ผู้ขอต้องการ แล้วกดส่ง ระบบจะส่งอีเมลถึง <b>${esc(r.Email)}</b> ทันที (สำเนาถึงอีเมลกลุ่มงานเป็นหลักฐาน)</div>
+      <label for="mPdf">ไฟล์ PDF (1–3 ไฟล์ ไม่เกิน 10 MB ต่อไฟล์)</label><input id="mPdf" type="file" accept="application/pdf" multiple>
+      <div class="actions"><button id="mSent" class="btn ok">ยืนยันและส่งอีเมล</button></div>` : ''}
     <div id="mErr" class="err"></div>
     <p><button id="mX" class="btn sec">ปิด</button></p>`;
   $('#modal').hidden = false;
@@ -120,11 +133,19 @@ function openDetail(r) {
     $('#mOk').onclick = run('reviewRequest', () => ({ id: r.Request_ID, decision: 'approve', remark: $('#mRm').value }), bs);
     $('#mNo').onclick = run('reviewRequest', () => ({ id: r.Request_ID, decision: 'reject', remark: $('#mRm').value }), bs);
   }
-  if (sendBox) $('#mSent').onclick = run('markSent', () => ({ id: r.Request_ID }), [$('#mSent')]);
+  if (sendBox) $('#mSent').onclick = async () => {
+    const fs = [...$('#mPdf').files];
+    if (!fs.length || fs.length > 3) return $('#mErr').textContent = 'กรุณาแนบไฟล์ PDF 1–3 ไฟล์';
+    if (fs.some((f) => f.type !== 'application/pdf' || f.size > 10 * 1048576)) return $('#mErr').textContent = 'ไฟล์ต้องเป็น PDF และไม่เกิน 10 MB';
+    if (!confirm('ยืนยันส่งอีเมลถึง ' + r.Email + ' ?')) return;
+    $('#mErr').textContent = 'กำลังส่งอีเมล...';
+    const files = await Promise.all(fs.map(async (f) => ({ name: f.name, mime: f.type, data: await toB64(f) })));
+    run('sendDocument', () => ({ id: r.Request_ID, files }), [$('#mSent')])();
+  };
 }
 
 function exportCsv() {
-  const cols = ['Request_ID', 'Timestamp', 'User_Name', 'Position', 'Department', 'Phone', 'Category', 'Detail', 'Purpose', 'Submit_To', 'Status', 'Staff_By', 'Staff_Remark', 'Director_By', 'Director_Remark', 'Sent_At'];
+  const cols = ['Request_ID', 'Timestamp', 'User_Name', 'Position', 'Department', 'Phone', 'Email', 'Category', 'Detail', 'Purpose', 'Submit_To', 'Status', 'Staff_By', 'Staff_Remark', 'Director_By', 'Director_Remark', 'Sent_At'];
   const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const body = [cols.join(',')].concat(list.map((r) => cols.map((c) => q(c === 'Status' ? STATUS_TH[r[c]] : r[c])).join(','))).join('\r\n');
   const a = document.createElement('a');
@@ -159,6 +180,22 @@ function nav(n) {
 }
 $('#n1').onclick = () => nav(1); $('#n2').onclick = () => nav(2);
 $('#go').onclick = loadList; $('#csv').onclick = exportCsv; $('#sGo').onclick = loadStats;
+function boot() {
+  if (/Line\//.test(navigator.userAgent)) sessionStorage.setItem('hr_line', '1'); // เปิดในแอป LINE → ใช้ LINE login อัตโนมัติ
+  if (sessionStorage.getItem('hr_sess') || sessionStorage.getItem('hr_line')) return start();
+  $('#login').hidden = false; return Promise.resolve();
+}
+$('#lgo').onclick = async () => {
+  $('#lerr').textContent = ''; $('#lgo').disabled = true;
+  try {
+    const r = await api('adminLogin', { username: $('#lu').value, password: $('#lp').value });
+    sessionStorage.setItem('hr_sess', r.token); $('#lp').value = ''; await start();
+  } catch (e) { $('#lerr').textContent = e.message; }
+  $('#lgo').disabled = false;
+};
+$('#lp').onkeydown = (e) => { if (e.key === 'Enter') $('#lgo').click(); };
+$('#lline').onclick = () => { sessionStorage.setItem('hr_line', '1'); start().catch((e) => $('#lerr').textContent = e.message); };
+$('#out').onclick = () => { const l = sessionStorage.getItem('hr_line'); sessionStorage.clear(); try { if (l) liff.logout(); } catch (e) {} location.reload(); };
 boot().catch((e) => document.body.insertAdjacentHTML('beforeend', `<p class="err wrap">เปิดระบบไม่สำเร็จ: ${esc(e.message)}</p>`));
 </script>
 </body>

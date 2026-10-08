@@ -12,16 +12,24 @@ const badge = (s) => `<span class="badge b-${esc(s)}">${esc(STATUS_TH[s] || s)}<
 
 // ส่งเป็น text/plain เพื่อเลี่ยง CORS preflight ของ Apps Script
 async function api(action, payload = {}) {
+  const sess = sessionStorage.getItem('hr_sess');
+  const auth = action === 'adminLogin' ? {} : sess ? { session: sess } : { idToken: liff.getIDToken() };
   const res = await fetch(CONFIG.API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action, idToken: liff.getIDToken(), payload }),
+    body: JSON.stringify({ action, ...auth, payload }),
   });
   const r = await res.json();
   if (!r.ok) {
-    if (r.error === 'INVALID_TOKEN') { liff.logout(); location.reload(); } // token หมดอายุ → login ใหม่
+    if (r.error === 'SESSION_EXPIRED') { sessionStorage.removeItem('hr_sess'); location.reload(); throw new Error('เซสชันหมดอายุ'); }
+    if (r.error === 'INVALID_TOKEN') {
+      // ลอง login LINE ใหม่ได้ครั้งเดียว กันวนลูป — ถ้ายังไม่ผ่านให้แสดงสาเหตุ
+      if (!sessionStorage.getItem('hr_relogin')) { sessionStorage.setItem('hr_relogin', '1'); liff.logout(); location.reload(); throw new Error('กำลังเข้าสู่ระบบใหม่...'); }
+      throw new Error('ยืนยันตัวตนผ่าน LINE ไม่สำเร็จ: ' + (r.detail || 'INVALID_TOKEN'));
+    }
     throw new Error(r.error);
   }
+  sessionStorage.removeItem('hr_relogin');
   return r.data;
 }
 
