@@ -40,7 +40,7 @@
       <label for="em">อีเมลที่ต้องการรับไฟล์เอกสาร PDF *</label><input id="em" type="email" autocomplete="email">
 
       <h3>รายการที่ขอ</h3>
-      <label for="cat">ประเภทเอกสาร *</label><select id="cat"></select>
+      <label for="cat">ประเภทเอกสาร *</label><select id="cat"><option value="">กำลังโหลดประเภทเอกสาร...</option></select>
       <div id="hint" class="hint" hidden></div>
       <label for="detail">ต้องการเอกสารอะไร (ระบุให้ชัดเจน เช่น ชื่อเอกสาร จำนวนฉบับ) *</label><textarea id="detail"></textarea>
       <label for="purpose">นำไปใช้ทำอะไร (วัตถุประสงค์) *</label><textarea id="purpose"></textarea>
@@ -141,7 +141,10 @@ function tab(n) {
   if (n === 2) loadList().catch((e) => $('#list').textContent = e.message);
 }
 $('#t1').onclick = () => tab(1); $('#t2').onclick = () => tab(2);
-boot().catch((e) => document.body.insertAdjacentHTML('beforeend', `<p class="err wrap">เปิดระบบไม่สำเร็จ: ${esc(e.message)}</p>`));
+boot().catch((e) => {
+  $('#cat').innerHTML = '<option value="">โหลดไม่สำเร็จ</option>';
+  document.querySelector('.wrap').insertAdjacentHTML('afterbegin', `<div class="notice err" role="alert">เปิดระบบไม่สำเร็จ: ${esc(e.message)}</div>`);
+});
 </script>
 </body>
 </html>
