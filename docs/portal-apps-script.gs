@@ -34,19 +34,27 @@ function setup() {
     SCHEMA[n].filter(k => h.indexOf(k) < 0).forEach(k => s.getRange(1, s.getLastColumn() + 1).setValue(k));
     s.setFrozenRows(1);
   });
-  const c = ss.getSheetByName('Categories');
-  if (c.getLastRow() < 2) {
-    [
-      ['หนังสือรับรองเงินเดือน', true, 'none', 'ระบุวัตถุประสงค์และหน่วยงานที่ใช้ยื่น เช่น สถาบันการเงิน'],
-      ['หนังสือรับรองการทำงาน', true, 'none', 'ระบุวัตถุประสงค์และหน่วยงานที่ใช้ยื่น'],
-      ['สวัสดิการ / ค่ารักษาพยาบาล / ค่าเล่าเรียนบุตร', true, 'required', 'แนบใบเสร็จรับเงิน ใบรับรองแพทย์ หรือสูติบัตร ตามกรณี'],
-      ['ขอปรับปรุงข้อมูลประวัติส่วนบุคคล', true, 'required', 'แนบหลักฐาน เช่น ทะเบียนสมรส ใบเปลี่ยนชื่อ-สกุล'],
-      ['เอกสารการลา', true, 'optional', 'ลาป่วยตั้งแต่ 3 วันทำการขึ้นไป แนบใบรับรองแพทย์'],
-      ['ขอเข้าตรวจดูเอกสารประวัติ (ก.พ.7)', true, 'none', 'ระบุวันที่และเวลาที่ต้องการเข้าตรวจดู'],
-      ['ขอเสนอขอเครื่องราชอิสริยาภรณ์', true, 'required', 'แนบเอกสารประกอบการพิจารณาตามที่กลุ่มงานกำหนด'],
-    ].forEach(r => c.appendRow(r));
-  }
+  syncCategories();
   if (!P.getProperty('ROOT_FOLDER_ID')) P.setProperty('ROOT_FOLDER_ID', DriveApp.createFolder('HR Document Portal').getId());
+}
+
+/* ประเภทเอกสารที่ให้เลือกในแบบฟอร์ม (dropdown) — แก้รายการที่นี่แล้วรัน setup() ใหม่ได้ */
+const CATEGORY_LIST = [
+  ['คำสั่งต่างๆ', 'optional', 'ระบุชื่อ/เลขที่คำสั่งและปีที่ออก เช่น คำสั่งบรรจุแต่งตั้ง คำสั่งมอบหมายหน้าที่ ในช่องรายละเอียด'],
+  ['เอกสารประวัติส่วนตัว', 'optional', 'เช่น สำเนา ก.พ.7 ทะเบียนประวัติ หลักฐานการเปลี่ยนชื่อ-สกุล ระบุรายการที่ต้องการในช่องรายละเอียด'],
+  ['เอกสารอื่นๆ', 'optional', 'ระบุชื่อเอกสารและรายละเอียดที่ต้องการให้ชัดเจนในช่องรายละเอียด'],
+];
+function syncCategories() {
+  const s = sh('Categories'), h = headers('Categories'), names = CATEGORY_LIST.map(c => c[0]);
+  rows('Categories').forEach((c, i) => { // ปิดหมวดเก่าที่ไม่อยู่ในรายการ (ไม่ลบ)
+    if (names.indexOf(c.Name) < 0 && String(c.Active).toUpperCase() === 'TRUE') setCells('Categories', i, { Active: false });
+  });
+  const have = rows('Categories').map(c => c.Name);
+  CATEGORY_LIST.forEach(c => {
+    const i = have.indexOf(c[0]);
+    if (i < 0) appendObj('Categories', { Name: c[0], Active: true, Attach: c[1], Hint: c[2] });
+    else setCells('Categories', i, { Active: true, Attach: c[1], Hint: c[2] });
+  });
 }
 
 /* ---------- Entry points ---------- */
@@ -165,7 +173,7 @@ function getMe(user) {
 }
 
 function saveRequest(user, p) {
-  const cat = rows('Categories').find(c => c.Name === p.category);
+  const cat = rows('Categories').find(c => c.Name === p.category && String(c.Active).toUpperCase() === 'TRUE');
   const need = { firstName: 'ชื่อ', lastName: 'นามสกุล', position: 'ตำแหน่ง', department: 'กลุ่มงาน/หน่วยงาน', detail: 'เอกสารที่ต้องการ', purpose: 'วัตถุประสงค์' };
   Object.keys(need).forEach(k => { if (!String(p[k] || '').trim()) throw new Error('กรุณากรอก' + need[k]); });
   const em = String(p.email || '').trim();
@@ -296,9 +304,16 @@ function getDashboardStats(user, p) {
     return (!p.from || d >= p.from) && (!p.to || d <= p.to);
   });
   const count = fn => list.reduce((m, r) => { const k = fn(r); m[k] = (m[k] || 0) + 1; return m; }, {});
+  const toMs = t => new Date(String(t).replace(' ', 'T') + '+07:00').getTime();
+  const days = list.filter(r => r.Status === 'Sent' && r.Sent_At).map(r => (toMs(r.Sent_At) - toMs(r.Timestamp)) / 86400000);
+  const dept = count(r => String(r.Department || '-').trim() || '-');
   return {
     total: list.length, byDay: count(r => String(r.Timestamp).slice(0, 10)), byMonth: count(r => String(r.Timestamp).slice(0, 7)),
     byYear: count(r => String(r.Timestamp).slice(0, 4)), byCategory: count(r => r.Category), byStatus: count(r => r.Status),
+    byDepartment: Object.fromEntries(Object.entries(dept).sort((a, b) => b[1] - a[1]).slice(0, 10)),
+    avgDays: days.length ? Math.round(days.reduce((x, y) => x + y, 0) / days.length * 10) / 10 : null,
+    items: list.slice().reverse().slice(0, 300).map(r => ({ id: r.Request_ID, date: String(r.Timestamp).slice(0, 10),
+      category: r.Category, name: r.User_Name, dept: r.Department, detail: String(r.Detail).slice(0, 200) })),
   };
 }
 

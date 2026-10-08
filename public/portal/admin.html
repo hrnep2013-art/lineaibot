@@ -59,6 +59,12 @@
         <div class="card"><h3>จำนวนคำขอ</h3><canvas id="cTime"></canvas></div>
         <div class="card"><h3>สัดส่วนประเภทเอกสาร</h3><canvas id="cCat"></canvas></div>
         <div class="card"><h3>สถานะการดำเนินการ</h3><canvas id="cSt"></canvas></div>
+        <div class="card"><h3>กลุ่มงานที่ขอมากที่สุด (10 อันดับ)</h3><canvas id="cDep"></canvas></div>
+      </div>
+      <div class="card"><h3>สรุปตามประเภทเอกสาร <span class="meta">(กดแถวเพื่อดูว่าขออะไรบ้าง)</span></h3>
+        <table><thead><tr><th>ประเภท</th><th>จำนวน</th><th>สัดส่วน</th></tr></thead><tbody id="catRows"></tbody></table>
+        <h3 id="detTitle" hidden></h3>
+        <table id="detTbl" hidden><thead><tr><th>วันที่</th><th>ผู้ขอ / กลุ่มงาน</th><th>รายละเอียดที่ขอ</th></tr></thead><tbody id="detRows"></tbody></table>
       </div>
     </section>
   </main>
@@ -165,10 +171,22 @@ async function loadStats() {
   const done = stats.byStatus.Sent || 0, pend = (stats.byStatus.Pending || 0) + (stats.byStatus.WaitDirector || 0) + (stats.byStatus.Approved || 0), pc = (n) => stats.total ? Math.round(n * 100 / stats.total) : 0;
   $('#kpis').innerHTML = `<div class="kpi"><b>${stats.total}</b>คำขอทั้งหมด</div>
     <div class="kpi"><b>${pc(done)}%</b>ส่งเอกสารแล้ว (${done})</div><div class="kpi"><b>${pc(pend)}%</b>อยู่ระหว่างดำเนินการ (${pend})</div>
-    <div class="kpi"><b>${stats.byStatus.Rejected || 0}</b>ไม่อนุมัติ</div>`;
+    <div class="kpi"><b>${stats.byStatus.Rejected || 0}</b>ไม่อนุมัติ</div>
+    <div class="kpi"><b>${stats.avgDays == null ? '—' : stats.avgDays}</b>วันเฉลี่ยจนส่งเอกสาร</div>`;
+  const cats = Object.entries(stats.byCategory).sort((a, b) => b[1] - a[1]);
+  if (cats.length) $('#kpis').insertAdjacentHTML('afterbegin', `<div class="kpi"><b style="font-size:1.2rem">${esc(cats[0][0])}</b>ขอมากที่สุด (${cats[0][1]} ครั้ง)</div>`);
   const t = stats[$('#sGrp').value], tk = Object.keys(t).sort();
   draw('cTime', 'bar', tk, tk.map((k) => t[k]));
-  draw('cCat', 'pie', Object.keys(stats.byCategory), Object.values(stats.byCategory));
+  draw('cCat', 'pie', cats.map((c) => c[0]), cats.map((c) => c[1]));
+  draw('cDep', 'bar', Object.keys(stats.byDepartment), Object.values(stats.byDepartment), { indexAxis: 'y', scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } });
+  $('#catRows').innerHTML = cats.map(([c, n]) => `<tr class="click" data-c="${esc(c)}"><td>${esc(c)}</td><td>${n}</td><td>${pc(n)}%</td></tr>`).join('') || '<tr><td colspan="3">ไม่มีข้อมูล</td></tr>';
+  $('#detTitle').hidden = $('#detTbl').hidden = true;
+  $('#catRows').querySelectorAll('tr.click').forEach((tr) => tr.onclick = () => {
+    const rs = stats.items.filter((i) => i.category === tr.dataset.c);
+    $('#detTitle').textContent = tr.dataset.c + ' — รายการที่ขอ (' + rs.length + (stats.total > stats.items.length ? ' จาก 300 รายการล่าสุด' : '') + ')';
+    $('#detRows').innerHTML = rs.map((i) => `<tr><td>${esc(i.date)}</td><td>${esc(i.name)}<div class="meta">${esc(i.dept)}</div></td><td>${esc(i.detail)}</td></tr>`).join('');
+    $('#detTitle').hidden = $('#detTbl').hidden = false;
+  });
   const sk = Object.keys(stats.byStatus);
   draw('cSt', 'doughnut', sk.map((k) => STATUS_TH[k]), sk.map((k) => stats.byStatus[k]));
 }
