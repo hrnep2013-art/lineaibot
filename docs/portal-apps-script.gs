@@ -42,6 +42,7 @@ function setup() {
 const CATEGORY_LIST = [
   ['คำสั่งต่างๆ', 'optional', 'ระบุชื่อ/เลขที่คำสั่งและปีที่ออก เช่น คำสั่งบรรจุแต่งตั้ง คำสั่งมอบหมายหน้าที่ ในช่องรายละเอียด'],
   ['เอกสารประวัติส่วนตัว', 'optional', 'เช่น สำเนา ก.พ.7 ทะเบียนประวัติ หลักฐานการเปลี่ยนชื่อ-สกุล ระบุรายการที่ต้องการในช่องรายละเอียด'],
+  ['เอกสารสัญญาจ้างพนักงานราชการ', 'optional', 'ระบุชื่อสัญญา/ปีที่จ้าง เช่น สัญญาจ้างพนักงานราชการทั่วไป ในช่องรายละเอียด'],
   ['เอกสารอื่นๆ', 'optional', 'ระบุชื่อเอกสารและรายละเอียดที่ต้องการให้ชัดเจนในช่องรายละเอียด'],
 ];
 function syncCategories() {
@@ -85,9 +86,11 @@ function verifyToken(idToken) {
   const key = 'tok_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, idToken));
   const cache = CacheService.getScriptCache(), hit = cache.get(key);
   if (hit) return JSON.parse(hit);
+  const cid = String(P.getProperty('LOGIN_CHANNEL_ID') || '').trim();
+  if (!cid) throw new Error('ยังไม่ได้ตั้งค่า LOGIN_CHANNEL_ID ใน Script Properties ของ Apps Script');
   const res = UrlFetchApp.fetch('https://api.line.me/oauth2/v2.1/verify', {
     method: 'post', muteHttpExceptions: true,
-    payload: { id_token: idToken, client_id: P.getProperty('LOGIN_CHANNEL_ID') },
+    payload: { id_token: idToken, client_id: cid },
   });
   if (res.getResponseCode() !== 200) { const e = new Error('INVALID_TOKEN'); e.detail = res.getContentText().slice(0, 200); throw e; }
   const j = JSON.parse(res.getContentText());
