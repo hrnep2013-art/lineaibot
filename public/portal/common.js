@@ -1,8 +1,8 @@
 // ===== ตั้งค่า 3 ค่านี้ก่อนใช้งาน =====
 const CONFIG = {
-  LIFF_ID: 'YOUR_LIFF_ID',                                   // จาก LINE Developers → LIFF
-  API_URL: 'https://script.google.com/macros/s/XXXX/exec',   // Web app URL ของ Code.gs
-  BOT_ADD_URL: 'https://line.me/R/ti/p/@YOUR_BOT_ID',        // ลิงก์แอดเพื่อนบอท
+  LIFF_ID: '2011924190-XBGvVIL6',                                   // จาก LINE Developers → LIFF
+  API_URL: 'https://script.google.com/macros/s/AKfycbx4gWfPTDPlKd9B0kdGBsnZN_GVxalWvI2OFn3BriTe5rHj8t_ICF9_kJiUAcALlFaK/exec',   // Web app URL ของ Code.gs
+  BOT_ADD_URL: 'https://lin.ee/nLLIsdT',        // ลิงก์แอดเพื่อนบอท
 };
 
 const $ = (s) => document.querySelector(s);
